@@ -1,0 +1,24 @@
+# 依赖
+node_modules/
+
+# 本地数据库（SQLite，自动重建，勿提交）
+server/data/
+
+# 密钥 / 本地配置
+.env
+server/.env
+
+# 构建产物
+dist/
+dist-ssr/
+*.local
+
+# 日志与系统文件
+*.log
+.DS_Store
+
+# 工具 / 临时导出残留
+.claude/
+_d_tree.json
+_d_*.json
+_t_*.json
