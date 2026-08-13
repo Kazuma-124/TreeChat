@@ -26,8 +26,10 @@ export default function ContextSourcePanel({
   const resolve = (list: string[] = []) =>
     list.map((id) => allNodes.find((n) => n.id === id)).filter(Boolean) as ContextElement[];
 
-  const directIds = trace?.direct?.length ? trace.direct : ids;
-  const crossIds = trace?.cross || [];
+  // 有 trace 时直接采用其字段：根节点 direct 本就为空（无祖先），不可回退到 ids，
+  // 否则会与 cross 显示成同一批节点（ids = direct∪cross）。仅 trace 缺失时回退到 ids。
+  const directIds = trace ? (trace.direct || []) : ids;
+  const crossIds = trace ? (trace.cross || []) : [];
   const base = Array.from(new Set([...directIds, ...crossIds]));
 
   const [checked, setChecked] = useState<Set<string>>(() => new Set(base));
