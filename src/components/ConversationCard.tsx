@@ -98,7 +98,9 @@ export default function ConversationCard({
         </div>
       )}
       {node.status === 'pending' && <div className="msg ai pending">生成中…</div>}
-      {node.status === 'error' && <div className="msg ai error">出错了</div>}
+      {node.status === 'error' && (
+        <div className="msg ai error">⚠️ 出错了：{node.ai_message || '未知错误'}</div>
+      )}
 
       {node.context_trace || node.context_element_ids ? (
         <ContextSourcePanel

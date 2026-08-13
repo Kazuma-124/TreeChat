@@ -36,13 +36,26 @@ export function listConfigs() {
 
 export function getConfig(id) {
   const row = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id) || null;
-  if (row) row.api_key = decrypt(row.api_key);
+  if (row) {
+    const dk = decrypt(row.api_key);
+    // 解密失败（主密钥已变更）：返回空串，强制用户在编辑表单重新填入，避免把密文二次加密。
+    row.api_key = isEncrypted(dk) ? '' : dk;
+  }
   return row;
 }
 
 export function getActiveConfig() {
   const row = db.prepare('SELECT * FROM api_configs WHERE is_active = 1 LIMIT 1').get();
-  if (row) row.api_key = decrypt(row.api_key);
+  if (row) {
+    const dk = decrypt(row.api_key);
+    if (isEncrypted(dk)) {
+      // 主密钥不匹配导致无法解密：抛出清晰可执行的错误，而非把密文当作 Key 发给 LLM（会误报 401）。
+      throw new Error(
+        `API Key 解密失败：主密钥已变更，密文无法还原。请在「⚙ API」中删除并重新添加方案「${row.name}」`
+      );
+    }
+    row.api_key = dk;
+  }
   return row || envFallback();
 }
 

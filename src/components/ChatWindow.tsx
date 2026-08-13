@@ -141,18 +141,20 @@ export default function ChatWindow({
             setLocalNodes((prev) =>
               prev.map((n) => (n.id === tempId ? { ...n, ai_message: (n.ai_message || '') + delta } : n))
             ),
-          onError: () =>
+          onError: (msg) =>
             setLocalNodes((prev) =>
               prev.map((n) =>
-                n.id === tempId ? { ...n, status: 'error', ai_message: n.ai_message || '出错了' } : n
+                n.id === tempId ? { ...n, status: 'error', ai_message: msg || n.ai_message || '出错了' } : n
               )
             ),
         });
         onChanged();
         return newId;
-      } catch {
+      } catch (e) {
         setLocalNodes((prev) =>
-          prev.map((n) => (n.id === tempId ? { ...n, status: 'error' } : n))
+          prev.map((n) =>
+            n.id === tempId ? { ...n, status: 'error', ai_message: (e as Error)?.message || n.ai_message || '出错了' } : n
+          )
         );
         return null;
       } finally {
