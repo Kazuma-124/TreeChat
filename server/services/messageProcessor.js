@@ -17,8 +17,9 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
 
   let depth = 0;
   let siblingIndex = 0;
+  let parent = null;
   if (parentId) {
-    const parent = db.prepare('SELECT * FROM context_elements WHERE id = ?').get(parentId);
+    parent = db.prepare('SELECT * FROM context_elements WHERE id = ?').get(parentId);
     if (!parent) throw new Error('parentId not found');
     depth = parent.depth + 1;
     siblingIndex = db.prepare('SELECT COUNT(*) AS c FROM context_elements WHERE parent_id = ?').get(parentId).c;
@@ -27,7 +28,27 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   const id = randomUUID();
   const now = Date.now();
   const usedModel = model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
-  const ancestorChain = parentId ? getAncestorChain(parentId) : [];
+  const treeNodes = db.prepare('SELECT * FROM context_elements WHERE tree_id = ?').all(treeId);
+
+  // 直接上下文 = 父节点的直接路径（context_trace.direct，已递归含更上层路径节点）+ 父节点自身。
+  // 仅含路径节点，不含父节点用过的跨分支节点；全部本地从 DB 获得，不调 API。
+  // 父节点无 trace 时回退到 getAncestorChain 重新走路径。
+  let ancestorChain = [];
+  if (parent) {
+    let parentDirect = [];
+    try {
+      const tr = parent.context_trace ? JSON.parse(parent.context_trace) : null;
+      if (tr && Array.isArray(tr.direct)) parentDirect = tr.direct;
+    } catch { /* ignore */ }
+    if (!parentDirect.length) {
+      parentDirect = getAncestorChain(parent.id).map((n) => n.id);
+    }
+    const directIds = Array.from(new Set([...parentDirect, parent.id]));
+    ancestorChain = directIds
+      .map((cid) => treeNodes.find((n) => n.id === cid))
+      .filter(Boolean)
+      .sort((a, b) => a.created_at - b.created_at);
+  }
   const ancestorIds = ancestorChain.map((n) => n.id);
 
   // 先落库 pending，并通知前端（流式场景）
@@ -40,7 +61,6 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   if (onStart) onStart({ id, treeId, parentId, userMessage });
 
   // 组装上下文（直接 / 跨分支）
-  const treeNodes = db.prepare('SELECT * FROM context_elements WHERE tree_id = ?').all(treeId);
   const ancestorSet = new Set(ancestorIds);
   let direct, cross, retrieval;
 

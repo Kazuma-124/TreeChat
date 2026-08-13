@@ -95,7 +95,7 @@ export default function ContextSourcePanel({
     <div className="ctx-panel">
       <div className="ctx-title">📋 本次回答的上下文来源</div>
 
-      {rows(direct, '✅ 直接上下文（祖先路径，自动包含）')}
+      {rows(direct, '✅ 直接上下文（父节点上下文 + 父节点，自动继承）')}
       {rows(cross, '🔍 跨分支召回')}
       {rows(extra, '➕ 追加节点')}
 
