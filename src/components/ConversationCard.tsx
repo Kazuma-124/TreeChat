@@ -37,10 +37,11 @@ export default function ConversationCard({
   onDelete: (id: string) => void;
   onFocus: (id: string, parentId?: string | null) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const qRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (focused && ref.current) {
-      ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // 聚焦时跳转到「提问位置」（提问与回答的交界处），而非整张卡片
+    if (focused && qRef.current) {
+      qRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }, [focused]);
 
@@ -53,8 +54,8 @@ export default function ConversationCard({
   };
 
   return (
-    <div ref={ref} className={`conv-card depth-${node.depth}${focused ? ' focused' : ''}`}>
-      <div className="msg user">
+    <div className={`conv-card depth-${node.depth}${focused ? ' focused' : ''}`}>
+      <div ref={qRef} className="msg user">
         <div className="msg-body">🙋 {node.user_message}</div>
         <div className="msg-actions">
           <CopyButton text={node.user_message} />
