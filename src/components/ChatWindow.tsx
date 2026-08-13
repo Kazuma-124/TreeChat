@@ -39,6 +39,7 @@ export default function ChatWindow({
   const [currentParentId, setCurrentParentId] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [showTree, setShowTree] = useState(false);
+  const [nextOpen, setNextOpen] = useState(true);
   const [localNodes, setLocalNodes] = useState<ContextElement[]>(nodes);
   const downLevelRef = useRef<HTMLDivElement>(null);
 
@@ -73,7 +74,7 @@ export default function ChatWindow({
     currentChildren.some((c) => key(c.id) === key(n.parent_id))
   );
 
-  // 下一层导航：焦点所在分组默认滚动到可视区中间
+  // 下一层侧栏：焦点所在分组滚动进可视区（竖向）
   useEffect(() => {
     const c = downLevelRef.current;
     if (!c) return;
@@ -83,7 +84,7 @@ export default function ChatWindow({
         : localNodes.find((n) => n.id === focus)?.parent_id ?? null;
     if (!fid) return;
     const el = c.querySelector<HTMLElement>(`[data-parent="${fid}"]`);
-    if (el) c.scrollLeft = el.offsetLeft - (c.clientWidth - el.clientWidth) / 2;
+    if (el) el.scrollIntoView({ block: 'nearest' });
   }, [focus, currentChildren, downChildren]);
 
   // 面包屑：从根到 currentParentId 的祖先链。
@@ -237,57 +238,62 @@ export default function ChatWindow({
           />
         </div>
       ) : (
-        <>
-          {/* 上一层 */}
-          {currentParentId !== null && (
-            <div className="level-bar up">
-              <button className="nav-btn" onClick={() => setCurrentParentId(upParentKey)}>
-                ↑ 返回上一层
-              </button>
-              <div className="level-briefs">
-                {upLevel.map((n) => (
-                  <button
-                    key={n.id}
-                    className={`brief${n.id === currentParentId ? ' here' : ''}`}
-                    onClick={() => { setCurrentParentId(n.id); setFocus(null); }}
-                    title={n.user_message}
-                  >
-                    🙋 {n.user_message.slice(0, 24)}
-                    <span className="brief-a"> · {brief(n).slice(0, 18)}</span>
-                  </button>
-                ))}
+        <div className="chat-body">
+          <div className="chat-main">
+            {/* 上一层 */}
+            {currentParentId !== null && (
+              <div className="level-bar up">
+                <button className="nav-btn" onClick={() => setCurrentParentId(upParentKey)}>
+                  ↑ 返回上一层
+                </button>
+                <div className="level-briefs">
+                  {upLevel.map((n) => (
+                    <button
+                      key={n.id}
+                      className={`brief${n.id === currentParentId ? ' here' : ''}`}
+                      onClick={() => { setCurrentParentId(n.id); setFocus(null); }}
+                      title={n.user_message}
+                    >
+                      🙋 {n.user_message.slice(0, 24)}
+                      <span className="brief-a"> · {brief(n).slice(0, 18)}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-
-          {/* 当前层 */}
-          <div className="chat-list current-level">
-            {currentChildren.length === 0 ? (
-              <div className="hint">
-                {currentParentId === null ? '从下面的输入框开始第一个问题' : '这一层还没有对话，发送一条试试'}
-              </div>
-            ) : (
-              currentChildren.map((n) => (
-                <ConversationCard
-                  key={n.id}
-                  node={n}
-                  allNodes={localNodes}
-                  treeId={treeId}
-                  focused={focus === n.id}
-                  onChanged={onChanged}
-                  onStreamSend={streamSend}
-                  onDelete={handleDelete}
-                  onFocus={handleFocus}
-                />
-              ))
             )}
+
+            {/* 当前层 */}
+            <div className="chat-list current-level">
+              {currentChildren.length === 0 ? (
+                <div className="hint">
+                  {currentParentId === null ? '从下面的输入框开始第一个问题' : '这一层还没有对话，发送一条试试'}
+                </div>
+              ) : (
+                currentChildren.map((n) => (
+                  <ConversationCard
+                    key={n.id}
+                    node={n}
+                    allNodes={localNodes}
+                    treeId={treeId}
+                    focused={focus === n.id}
+                    onChanged={onChanged}
+                    onStreamSend={streamSend}
+                    onDelete={handleDelete}
+                    onFocus={handleFocus}
+                  />
+                ))
+              )}
+            </div>
           </div>
 
-          {/* 下一层：两行两级，按当前窗口节点分组（第一行=当前窗口节点，第二行=各自子节点） */}
-          {downChildren.length > 0 && (
-            <div className="level-bar down">
-              <span className="level-label">↓ 下一层</span>
-              <div className="down-level" ref={downLevelRef}>
+          {/* 下一层：右侧栏，按当前窗口节点分组（组头=当前窗口节点，下方=各自子节点） */}
+          {nextOpen && downChildren.length > 0 && (
+            <aside className="next-sidebar" ref={downLevelRef}>
+              <div className="next-sidebar-head">
+                <span className="level-label">↓ 下一层</span>
+                <button className="sidebar-collapse" onClick={() => setNextOpen(false)} title="收起侧栏">⟨</button>
+              </div>
+              <div className="next-groups">
                 {currentChildren.map((p) => {
                   const kids = byParent(p.id);
                   return (
@@ -320,9 +326,12 @@ export default function ChatWindow({
                   );
                 })}
               </div>
-            </div>
+            </aside>
           )}
-        </>
+        </div>
+      )}
+      {!showTree && !nextOpen && downChildren.length > 0 && (
+        <button className="next-reopen" onClick={() => setNextOpen(true)} title="展开下一层侧栏">↓ 下一层</button>
       )}
 
       <div className="composer">
