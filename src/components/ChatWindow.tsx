@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ContextElement, api, sendMessageStream, DEFAULT_MODEL } from '../api';
 import ModelSelector from './ModelSelector';
 import TreeView from './TreeView';
@@ -40,6 +40,7 @@ export default function ChatWindow({
   const [focus, setFocus] = useState<string | null>(null);
   const [showTree, setShowTree] = useState(false);
   const [localNodes, setLocalNodes] = useState<ContextElement[]>(nodes);
+  const downLevelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setLocalNodes(nodes);
@@ -71,6 +72,19 @@ export default function ChatWindow({
   const downChildren = localNodes.filter((n) =>
     currentChildren.some((c) => key(c.id) === key(n.parent_id))
   );
+
+  // 下一层导航：焦点所在分组默认滚动到可视区中间
+  useEffect(() => {
+    const c = downLevelRef.current;
+    if (!c) return;
+    const fid =
+      focus && currentChildren.some((n) => n.id === focus)
+        ? focus
+        : localNodes.find((n) => n.id === focus)?.parent_id ?? null;
+    if (!fid) return;
+    const el = c.querySelector<HTMLElement>(`[data-parent="${fid}"]`);
+    if (el) c.scrollLeft = el.offsetLeft - (c.clientWidth - el.clientWidth) / 2;
+  }, [focus, currentChildren, downChildren]);
 
   // 面包屑：从根到 currentParentId 的祖先链。
   const path: ContextElement[] = [];
@@ -215,7 +229,12 @@ export default function ChatWindow({
 
       {showTree ? (
         <div className="chat-list tree-jump-view">
-          <TreeView nodes={localNodes} onSelectNode={jumpToNode} />
+          <TreeView
+            nodes={localNodes}
+            onSelectNode={jumpToNode}
+            currentParentId={currentParentId}
+            focusId={focus}
+          />
         </div>
       ) : (
         <>
@@ -264,22 +283,42 @@ export default function ChatWindow({
             )}
           </div>
 
-          {/* 下一层 */}
+          {/* 下一层：两行两级，按当前窗口节点分组（第一行=当前窗口节点，第二行=各自子节点） */}
           {downChildren.length > 0 && (
             <div className="level-bar down">
               <span className="level-label">↓ 下一层</span>
-              <div className="level-briefs">
-                {downChildren.map((n) => (
-                  <button
-                    key={n.id}
-                    className="brief"
-                    onClick={() => jumpToNode(n.id)}
-                    title={n.user_message}
-                  >
-                    🙋 {n.user_message.slice(0, 24)}
-                    <span className="brief-a"> · {brief(n).slice(0, 18)}</span>
-                  </button>
-                ))}
+              <div className="down-level" ref={downLevelRef}>
+                {currentChildren.map((p) => {
+                  const kids = byParent(p.id);
+                  return (
+                    <div className="down-group" key={p.id} data-parent={p.id}>
+                      <button
+                        className={`down-parent${focus === p.id ? ' active' : ''}`}
+                        onClick={() => setFocus(p.id)}
+                        title={p.user_message}
+                      >
+                        🙋 {p.user_message.slice(0, 20)}
+                      </button>
+                      <div className="down-kids">
+                        {kids.length === 0 ? (
+                          <span className="down-empty">（无）</span>
+                        ) : (
+                          kids.map((k) => (
+                            <button
+                              key={k.id}
+                              className="brief"
+                              onClick={() => jumpToNode(k.id)}
+                              title={k.user_message}
+                            >
+                              🙋 {k.user_message.slice(0, 20)}
+                              <span className="brief-a"> · {brief(k).slice(0, 16)}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
