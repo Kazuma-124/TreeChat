@@ -92,15 +92,15 @@ export async function retrieveContext({ userMessage, ancestorIds, metadataIndex 
   }
   const data = await resp.json();
   const raw = data.choices[0].message.content;
-  return parseRetrieval(raw, ancestorIds);
+  return parseRetrieval(raw);
 }
 
-function parseRetrieval(raw, ancestorIds) {
+// 祖先排除已移到本地（发送前删去路径元数据），这里不再过滤，仅解析所选 id 与理由。
+function parseRetrieval(raw) {
   try {
     const json = JSON.parse(raw.replace(/^[\s\S]*?\{/, '{').replace(/\}[\s\S]*$/, '}'));
     const ids = Array.isArray(json.selected_ids) ? json.selected_ids.map(String) : [];
-    const filtered = ids.filter((id) => !ancestorIds.includes(id));
-    return { selectedIds: filtered, reasoning: String(json.reasoning || '') };
+    return { selectedIds: ids, reasoning: String(json.reasoning || '') };
   } catch {
     return { selectedIds: [], reasoning: '' };
   }

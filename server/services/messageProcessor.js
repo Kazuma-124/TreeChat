@@ -2,7 +2,6 @@ import { randomUUID } from 'crypto';
 import db from '../db.js';
 import { getAncestorChain } from './treeTraversal.js';
 import { retrieveContext } from './contextRetriever.js';
-import { generateMetadata } from './metadataGenerator.js';
 import { buildContext } from './contextBuilder.js';
 import { generateAnswer, generateAnswerStream } from './chatGenerator.js';
 
@@ -77,8 +76,9 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
       .map((n) => ({ id: n.id, userMessage: n.user_message, aiMessage: n.ai_message || '', degraded: false }));
     retrieval = { selectedIds: cross.map((n) => n.id), reasoning: '手动指定' };
   } else {
-    // 阶段一：跨分支检索（best-effort）
-    const metadataIndex = treeNodes.map(toMetaEntry);
+    // 阶段一：跨分支检索（best-effort）。
+    // 本地先剔除祖先路径上的元数据，再发送索引副本给 API（API 不再负责排除祖先）。
+    const metadataIndex = treeNodes.filter((n) => !ancestorSet.has(n.id)).map(toMetaEntry);
     let ret = { selectedIds: [], reasoning: '' };
     try {
       ret = await retrieveContext({ userMessage, ancestorIds, metadataIndex });
@@ -87,38 +87,33 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
     }
     const crossNodes = ret.selectedIds
       .map((cid) => treeNodes.find((n) => n.id === cid))
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((n) => !ancestorSet.has(n.id)); // 本地与直接上下文合并时去重
     const built = buildContext({ ancestorChain, crossNodes, budget: 6000 });
     direct = built.direct;
     cross = built.cross;
     retrieval = ret;
   }
 
-  // 阶段二：生成（流式或非流式）
-  let answer = '';
+  // 阶段二：生成（流式或非流式）。元数据（summary/tags）在同一调用里由 API 顺带产出。
+  let result = { answer: '', summary: '', tags: [] };
   try {
     if (onToken) {
-      answer = await generateAnswerStream({
+      result = await generateAnswerStream({
         contextGroups: { direct, cross },
         userMessage,
         model: usedModel,
         onToken,
       });
     } else {
-      answer = await generateAnswer({ contextGroups: { direct, cross }, userMessage, model: usedModel });
+      result = await generateAnswer({ contextGroups: { direct, cross }, userMessage, model: usedModel });
     }
   } catch (e) {
     db.prepare("UPDATE context_elements SET status = 'error', updated_at = ? WHERE id = ?").run(now, id);
     throw e;
   }
-
-  // 元数据（best-effort）
-  let meta = { summary: '', tags: [] };
-  try {
-    meta = await generateMetadata({ userMessage, aiMessage: answer });
-  } catch (e) {
-    console.error('generateMetadata failed:', e.message);
-  }
+  const answer = result.answer;
+  const meta = { summary: result.summary, tags: result.tags };
 
   const directIds = direct.map((n) => n.id);
   const crossIds = cross.map((n) => n.id);

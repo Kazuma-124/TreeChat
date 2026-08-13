@@ -13,6 +13,28 @@ const API_KEY = process.env.OPENAI_API_KEY || '';
 const MOCK = process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// 生成回答时让 API 在同一调用里顺带产出元数据：
+// 回答正文结束后另起一行输出 `@@META@@` + 单行 JSON {"summary":...,"tags":[...]}。
+// 流式场景下只在哨兵前把正文推给 UI，避免把元数据闪现给用户。
+const SENTINEL = '@@META@@';
+
+function parseGenerated(raw) {
+  const idx = raw.indexOf(SENTINEL);
+  if (idx < 0) return { answer: raw.trim(), summary: '', tags: [] };
+  const answer = raw.slice(0, idx).trim();
+  const metaRaw = raw.slice(idx + SENTINEL.length);
+  try {
+    const json = JSON.parse(metaRaw.replace(/^[\s\S]*?\{/, '{').replace(/\}[\s\S]*$/, '}'));
+    return {
+      answer,
+      summary: String(json.summary || '').slice(0, 200),
+      tags: Array.isArray(json.tags) ? json.tags.slice(0, 5).map(String) : [],
+    };
+  } catch {
+    return { answer, summary: '', tags: [] };
+  }
+}
+
 function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMPT }) {
   const direct = contextGroups.direct || [];
   const cross = contextGroups.cross || [];
@@ -35,9 +57,9 @@ function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMP
   return messages;
 }
 
-// 非流式：直接返回完整回答
+// 非流式：返回 { answer, summary, tags }
 export async function generateAnswer({ contextGroups, userMessage, model, systemPrompt }) {
-  if (MOCK) return mockAnswer({ ...contextGroups, userMessage, model });
+  if (MOCK) return mockResult({ ...contextGroups, userMessage, model });
   const messages = buildMessages({ contextGroups, userMessage, systemPrompt });
   const resp = await fetch(`${BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -49,19 +71,18 @@ export async function generateAnswer({ contextGroups, userMessage, model, system
     throw new Error(`LLM API ${resp.status}: ${text}`);
   }
   const data = await resp.json();
-  return data.choices[0].message.content;
+  return parseGenerated(data.choices[0].message.content);
 }
 
-// 流式：每个 token 块通过 onToken 回调吐出，最终返回完整回答。
+// 流式：每个 token 块通过 onToken 回调吐出（仅正文），最终返回 { answer, summary, tags }。
 export async function generateAnswerStream({ contextGroups, userMessage, model, systemPrompt, onToken }) {
-  const full = mockAnswer({ ...contextGroups, userMessage, model });
   if (MOCK) {
-    // 把假回答切成小块逐次推送，模拟流式
+    const full = mockAnswer({ ...contextGroups, userMessage, model });
     for (let i = 0; i < full.length; i += 12) {
       await sleep(12);
       onToken(full.slice(i, i + 12));
     }
-    return full;
+    return mockResult({ ...contextGroups, userMessage, model });
   }
 
   const messages = buildMessages({ contextGroups, userMessage, systemPrompt });
@@ -78,7 +99,9 @@ export async function generateAnswerStream({ contextGroups, userMessage, model, 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let answer = '';
+  let full = '';
+  let emitted = 0;
+  let metaStarted = false;
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -93,16 +116,36 @@ export async function generateAnswerStream({ contextGroups, userMessage, model, 
       try {
         const json = JSON.parse(payload);
         const delta = json.choices?.[0]?.delta?.content;
-        if (delta) {
-          answer += delta;
-          onToken(delta);
+        if (!delta) continue;
+        full += delta;
+        if (!metaStarted) {
+          const idx = full.indexOf(SENTINEL);
+          if (idx >= 0) {
+            metaStarted = true;
+            const disp = full.slice(0, idx);
+            if (disp.length > emitted) {
+              onToken(disp.slice(emitted));
+              emitted = disp.length;
+            }
+          } else {
+            // 哨兵可能在分片中跨块，先扣留末尾若干字符，避免把 @@META@@ 闪现给用户
+            const safeEnd = Math.max(emitted, full.length - (SENTINEL.length - 1));
+            if (safeEnd > emitted) {
+              onToken(full.slice(emitted, safeEnd));
+              emitted = safeEnd;
+            }
+          }
         }
       } catch {
         /* 忽略非 JSON 行 */
       }
     }
   }
-  return answer;
+  // 模型未输出哨兵（退化）时，把缓冲扣留的末尾字符补发给 UI
+  if (!metaStarted && emitted < full.length) {
+    onToken(full.slice(emitted));
+  }
+  return parseGenerated(full);
 }
 
 function mockAnswer({ direct, cross, userMessage, model }) {
@@ -117,4 +160,14 @@ function mockAnswer({ direct, cross, userMessage, model }) {
     (cCount ? `\n【跨分支召回 ${cCount} 条】\n${cLines}\n` : '\n（无跨分支召回）\n') +
     '\n这是离线假回答，用于验证流程。配置真实 OPENAI_BASE_URL + OPENAI_API_KEY 后即为真实回答。'
   );
+}
+
+// MOCK 模式：顺便给一份假元数据，保证下游解析路径与真实调用一致。
+function mockResult({ userMessage }) {
+  const full = mockAnswer({ ...arguments[0] });
+  const summary = full.replace(/\n+/g, ' ').slice(0, 80);
+  const tags = Array.from(
+    new Set(userMessage.split(/[\s，。？！、：,.:!?]+/).filter((w) => w.length >= 2))
+  ).slice(0, 5);
+  return { answer: full, summary, tags };
 }

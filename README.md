@@ -38,7 +38,7 @@
 | 对某回答子提问 → 子节点 | ✅ 每张卡片「💬 追问」生成 `parent_id` 指向该回答节点的子节点；提问后自动跳转到下一层 |
 | 树形（父子 / 平级 / 无关） | ✅ `parent_id / depth / sibling_index` 表达树结构；层级分页导航在层间穿梭 |
 | 节点 = 一问一答 | ✅ `context_elements` 每行即一个 CE 节点 |
-| 实时整理上下文：摘要 / 标签 / 时间 / 关系 | ✅ 回答完成后由 `metadataGenerator` 生成 `summary` 与 `tags`；`created_at` 记录时间；`parent_id` / `tree_id` 表达关系 |
+| 实时整理上下文：摘要 / 标签 / 时间 / 关系 | ✅ 生成回答时由同一 LLM 调用顺带产出 `summary` 与 `tags`（不再单独调用）；`created_at` 记录时间；`parent_id` / `tree_id` 表达关系 |
 | 上下文元素总表（所有 CE + ID） | ✅ `context_elements` 表即总表 |
 | 每节点上下文子集 | ✅ 每个节点 `context_element_ids` 记录本次所用 CE 子集 |
 | 两阶段选上下文（先让 API 从总表选相关，再组装实际提问） | ✅ 阶段一 `contextRetriever`：把祖先路径 + 全树元数据索引 + 提问发给 API 选相关元素；阶段二 `contextBuilder`：组装「直接祖先路径 + 跨分支召回」并按 token 预算裁剪，再发给 API 实际问答 |
@@ -99,8 +99,8 @@ TreeChat/
     ├── index.js
     ├── db.js                   # 建表 / 迁移（conversation_trees + context_elements）
     ├── routes/                 # trees / chat / search
-    ├── services/               # messageProcessor / contextRetriever / contextBuilder / metadataGenerator / chatGenerator / treeTraversal
-    └── prompts/                # retrieve.txt / metadata.txt / generate.txt（各阶段提示词）
+    ├── services/               # messageProcessor / contextRetriever / contextBuilder / chatGenerator / treeTraversal
+    └── prompts/                # retrieve.txt / generate.txt（检索 / 生成阶段提示词）
 ```
 
 ---
