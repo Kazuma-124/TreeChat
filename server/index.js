@@ -5,6 +5,7 @@ import treesRouter from './routes/trees.js';
 import chatRouter from './routes/chat.js';
 import searchRouter from './routes/search.js';
 import configRouter from './routes/config.js';
+import { migratePlaintextKeys } from './services/apiConfig.js';
 
 const app = express();
 app.use(cors());
@@ -17,6 +18,7 @@ app.use('/api/search', searchRouter);
 app.use('/api/configs', configRouter);
 
 const PORT = process.env.PORT || 3001;
+migratePlaintextKeys(); // 加密历史明文 API Key
 app.listen(PORT, () => {
   console.log(`TreeChat server running on http://localhost:${PORT}`);
 });

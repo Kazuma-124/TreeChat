@@ -7,6 +7,7 @@ server/data/
 # 密钥 / 本地配置
 .env
 server/.env
+server/.masterkey
 
 # 构建产物
 dist/
