@@ -28,6 +28,27 @@ export interface Tree {
   updated_at: number;
 }
 
+// API 方案配置（列表中的 api_key 已脱敏）
+export interface ApiConfig {
+  id: string;
+  name: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  is_mock: number;
+  is_active: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export type ApiConfigInput = {
+  name: string;
+  base_url: string;
+  api_key: string;
+  model?: string;
+  is_mock?: boolean;
+};
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
@@ -162,6 +183,17 @@ export const api = {
   updateTags: (id: string, tags: string[]) =>
     req<{ ok: boolean }>(`/api/chat/${id}`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
   search: (q: string) => req<SearchHit[]>(`/api/search?q=${encodeURIComponent(q)}`),
+  // API 方案配置
+  listConfigs: () => req<ApiConfig[]>('/api/configs'),
+  getConfig: (id: string) => req<ApiConfig>(`/api/configs/${id}`),
+  createConfig: (body: ApiConfigInput) =>
+    req<ApiConfig>('/api/configs', { method: 'POST', body: JSON.stringify(body) }),
+  updateConfig: (id: string, body: ApiConfigInput) =>
+    req<ApiConfig>(`/api/configs/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deleteConfig: (id: string) =>
+    req<{ ok: boolean }>(`/api/configs/${id}`, { method: 'DELETE' }),
+  activateConfig: (id: string) =>
+    req<ApiConfig>(`/api/configs/${id}/activate`, { method: 'POST' }),
   exportTree: async (id: string, format: 'json' | 'md') => {
     const r = await fetch(`/api/trees/${id}/export?format=${format}`);
     return r.text();

@@ -1,14 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getActiveConfig } from './apiConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const RETRIEVE_PROMPT = fs.readFileSync(
   path.join(__dirname, '..', 'prompts', 'retrieve.txt'),
   'utf-8'
 );
-
-const MOCK = process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true';
 
 function tokenize(s) {
   return (s || '')
@@ -51,7 +50,9 @@ export function prefilterCandidates(
 // 输入：用户新提问 + 祖先路径 id 列表 + 全树元数据索引（不含完整内容）
 // 输出：{ selectedIds: string[], reasoning: string }
 export async function retrieveContext({ userMessage, ancestorIds, metadataIndex }) {
-  if (MOCK) {
+  const cfg = getActiveConfig();
+  const mock = cfg.is_mock === 1 || process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true';
+  if (mock) {
     return { selectedIds: [], reasoning: 'MOCK：未执行跨分支检索' };
   }
 
@@ -65,14 +66,14 @@ export async function retrieveContext({ userMessage, ancestorIds, metadataIndex 
     )
     .join('\n');
 
-  const resp = await fetch(`${process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
+  const resp = await fetch(`${cfg.base_url || 'https://api.openai.com/v1'}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY || ''}`,
+      Authorization: `Bearer ${cfg.api_key || ''}`,
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      model: cfg.model || 'gpt-4o-mini',
       messages: [
         { role: 'system', content: RETRIEVE_PROMPT },
         {

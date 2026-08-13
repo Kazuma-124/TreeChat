@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { getActiveConfig } from './apiConfig.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT = fs.readFileSync(
@@ -8,10 +9,18 @@ const SYSTEM_PROMPT = fs.readFileSync(
   'utf-8'
 );
 
-const BASE_URL = process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1';
-const API_KEY = process.env.OPENAI_API_KEY || '';
-const MOCK = process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// 读取当前启用的 API 方案；无 DB 配置时回退环境变量。model 可被单次请求覆盖。
+function resolveConfig(model) {
+  const cfg = getActiveConfig();
+  return {
+    baseUrl: cfg.base_url || 'https://api.openai.com/v1',
+    apiKey: cfg.api_key || '',
+    model: model || cfg.model || 'gpt-4o-mini',
+    mock: cfg.is_mock === 1 || process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true',
+  };
+}
 
 // 生成回答时让 API 在同一调用里顺带产出元数据：
 // 回答正文结束后另起一行输出 `@@META@@` + 单行 JSON {"summary":...,"tags":[...]}。
@@ -59,12 +68,13 @@ function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMP
 
 // 非流式：返回 { answer, summary, tags }
 export async function generateAnswer({ contextGroups, userMessage, model, systemPrompt }) {
-  if (MOCK) return mockResult({ ...contextGroups, userMessage, model });
+  const cfg = resolveConfig(model);
+  if (cfg.mock) return mockResult({ ...contextGroups, userMessage, model: cfg.model });
   const messages = buildMessages({ contextGroups, userMessage, systemPrompt });
-  const resp = await fetch(`${BASE_URL}/chat/completions`, {
+  const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
-    body: JSON.stringify({ model, messages, temperature: 0.7 }),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+    body: JSON.stringify({ model: cfg.model, messages, temperature: 0.7 }),
   });
   if (!resp.ok) {
     const text = await resp.text();
@@ -76,20 +86,21 @@ export async function generateAnswer({ contextGroups, userMessage, model, system
 
 // 流式：每个 token 块通过 onToken 回调吐出（仅正文），最终返回 { answer, summary, tags }。
 export async function generateAnswerStream({ contextGroups, userMessage, model, systemPrompt, onToken }) {
-  if (MOCK) {
-    const full = mockAnswer({ ...contextGroups, userMessage, model });
+  const cfg = resolveConfig(model);
+  if (cfg.mock) {
+    const full = mockAnswer({ ...contextGroups, userMessage, model: cfg.model });
     for (let i = 0; i < full.length; i += 12) {
       await sleep(12);
       onToken(full.slice(i, i + 12));
     }
-    return mockResult({ ...contextGroups, userMessage, model });
+    return mockResult({ ...contextGroups, userMessage, model: cfg.model });
   }
 
   const messages = buildMessages({ contextGroups, userMessage, systemPrompt });
-  const resp = await fetch(`${BASE_URL}/chat/completions`, {
+  const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${API_KEY}` },
-    body: JSON.stringify({ model, messages, temperature: 0.7, stream: true }),
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+    body: JSON.stringify({ model: cfg.model, messages, temperature: 0.7, stream: true }),
   });
   if (!resp.ok) {
     const text = await resp.text();

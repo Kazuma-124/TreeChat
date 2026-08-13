@@ -3,6 +3,7 @@ import { ContextElement, api, sendMessageStream, DEFAULT_MODEL } from '../api';
 import ModelSelector from './ModelSelector';
 import TreeView from './TreeView';
 import ConversationCard from './ConversationCard';
+import ApiSettings from './ApiSettings';
 
 const ROOT = 'ROOT';
 const key = (id: string | null) => id ?? ROOT;
@@ -39,6 +40,7 @@ export default function ChatWindow({
   const [currentParentId, setCurrentParentId] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [showTree, setShowTree] = useState(false);
+  const [showApi, setShowApi] = useState(false);
   const [nextOpen, setNextOpen] = useState(true);
   const [localNodes, setLocalNodes] = useState<ContextElement[]>(nodes);
   const downLevelRef = useRef<HTMLDivElement>(null);
@@ -221,6 +223,9 @@ export default function ChatWindow({
           ))}
         </div>
         <div className="toolbar-right">
+          <button className="api-config-btn" onClick={() => setShowApi(true)} title="API 配置方案">
+            ⚙ API
+          </button>
           <button className={`tree-jump${showTree ? ' active' : ''}`} onClick={() => setShowTree((v) => !v)}>
             🌳 树视图
           </button>
@@ -348,6 +353,8 @@ export default function ChatWindow({
           {sending ? '生成中…' : '发送'}
         </button>
       </div>
+
+      {showApi && <ApiSettings onClose={() => setShowApi(false)} />}
     </div>
   );
 }
