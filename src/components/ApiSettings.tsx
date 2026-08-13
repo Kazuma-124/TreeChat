@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, ApiConfig, ApiConfigInput, MODELS, DEFAULT_MODEL } from '../api';
+import { api, ApiConfig, ApiConfigInput, DEFAULT_MODEL } from '../api';
 
 // API 方案管理弹窗：列出已保存方案，可新增 / 编辑 / 删除 / 启用。
 // 列表中 api_key 已脱敏；编辑时通过 GET /:id 取回完整 key 回填。
@@ -167,21 +167,17 @@ export default function ApiSettings({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setForm({ ...form, api_key: e.target.value })}
                 placeholder="sk-..."
                 type="password"
+                autoComplete="off"
+                name="api-key-not-saved"
               />
             </label>
             <label>
               模型
               <input
-                list="model-options"
                 value={form.model}
                 onChange={(e) => setForm({ ...form, model: e.target.value })}
-                placeholder="gpt-4o-mini"
+                placeholder="如 gpt-4o-mini / deepseek-chat（按你的接口填写）"
               />
-              <datalist id="model-options">
-                {MODELS.map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
             </label>
             <label className="cfg-mock">
               <input
