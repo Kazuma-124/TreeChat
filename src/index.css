@@ -196,8 +196,8 @@ body {
 .conv-card.focused { animation: node-flash 1.8s ease; }
 /* 提问左对齐、回答右对齐（气泡布局）；聚焦时滚动定位到提问位置 */
 .conv-card .msg { position: relative; margin: 8px 0; max-width: 86%; }
-.conv-card .msg.user { align-self: flex-start; background: #eef3ff; border: 1px solid #d8e3ff; border-radius: 12px 12px 12px 4px; padding: 8px 12px; scroll-margin: 80px; }
-.conv-card .msg.ai { align-self: flex-end; background: #f3f5f7; border: 1px solid #e6e8eb; border-radius: 12px 12px 4px 12px; padding: 8px 12px; text-align: left; }
+.conv-card .msg.user { align-self: flex-end; background: #eef3ff; border: 1px solid #d8e3ff; border-radius: 12px 12px 4px 12px; padding: 8px 12px; scroll-margin: 80px; }
+.conv-card .msg.ai { align-self: flex-start; background: #f3f5f7; border: 1px solid #e6e8eb; border-radius: 12px 12px 12px 4px; padding: 8px 12px; text-align: left; }
 
 /* Markdown 渲染（消息正文） */
 .markdown > :first-child { margin-top: 0; }
