@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ContextElement, Tree } from './api';
 import TreeSidebar from './components/TreeSidebar';
 import ChatWindow from './components/ChatWindow';
+import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
   const [trees, setTrees] = useState<Tree[]>([]);
@@ -87,33 +88,35 @@ export default function App() {
   const [focusId, setFocusId] = useState<string | null>(null);
 
   return (
-    <div className="app">
-      <TreeSidebar
-        trees={trees}
-        currentId={treeId}
-        onSelect={setTreeId}
-        onCreate={createTree}
-        onImported={onImported}
-        onSearchSelect={onSearchSelect}
-        onDeleteTree={onDeleteTree}
-        onRenameTree={onRenameTree}
-      />
-      <main className="main">
-        {treeId ? (
-          <ChatWindow
-            nodes={nodes}
-            treeId={treeId}
-            focusId={focusId}
-            onChanged={refresh}
-            loading={loading}
-          />
-        ) : (
-          <div className="empty">
-            <p>还没有对话树</p>
-            <button onClick={createTree}>+ 新建一个</button>
-          </div>
-        )}
-      </main>
-    </div>
+    <ErrorBoundary>
+      <div className="app">
+        <TreeSidebar
+          trees={trees}
+          currentId={treeId}
+          onSelect={setTreeId}
+          onCreate={createTree}
+          onImported={onImported}
+          onSearchSelect={onSearchSelect}
+          onDeleteTree={onDeleteTree}
+          onRenameTree={onRenameTree}
+        />
+        <main className="main">
+          {treeId ? (
+            <ChatWindow
+              nodes={nodes}
+              treeId={treeId}
+              focusId={focusId}
+              onChanged={refresh}
+              loading={loading}
+            />
+          ) : (
+            <div className="empty">
+              <p>还没有对话树</p>
+              <button onClick={createTree}>+ 新建一个</button>
+            </div>
+          )}
+        </main>
+      </div>
+    </ErrorBoundary>
   );
 }

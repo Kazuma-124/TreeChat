@@ -40,6 +40,12 @@ export default function ConversationCard({
 }) {
   const qRef = useRef<HTMLDivElement>(null);
   const [confirming, setConfirming] = useState(false);
+  // resources 在接口里可能是 JSON 字符串（旧数据/异常路径），统一成数组再渲染，避免对字符串调 .map 崩溃
+  const resList: Resource[] = Array.isArray(node.resources)
+    ? node.resources
+    : typeof node.resources === 'string'
+    ? parseResourceList(node.resources)
+    : [];
   useEffect(() => {
     // 聚焦时跳转到「提问位置」（提问与回答的交界处），而非整张卡片
     if (focused && qRef.current) {
@@ -59,9 +65,9 @@ export default function ConversationCard({
     <div className={`conv-card depth-${node.depth}${focused ? ' focused' : ''}`}>
       <div ref={qRef} className="msg user">
         <div className="msg-body">🙋 {node.user_message}</div>
-        {node.resources && node.resources.length > 0 ? (
+        {resList.length > 0 ? (
           <div className="card-resources">
-            {node.resources.map((r) => (
+            {resList.map((r) => (
               <span className="card-resource" key={r.id} title={r.description || r.content}>
                 {r.kind === 'image' && r.content ? (
                   <img src={r.content} className="card-resource-thumb" alt="资源" />
@@ -233,5 +239,16 @@ function parseTrace(raw: string | null): { direct?: string[]; cross?: string[]; 
     return v && typeof v === 'object' ? v : null;
   } catch {
     return null;
+  }
+}
+
+// resources 可能是 JSON 字符串（接口偶发返回原始文本），安全解析成数组，解析失败返回空数组
+function parseResourceList(raw: string | null): Resource[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
   }
 }

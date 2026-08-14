@@ -125,6 +125,12 @@ body {
 .tree-export button.tree-del { border-color: #7a3b38; color: #ff9a90; }
 .tree-export button.tree-del:hover { background: #5a2420; }
 
+/* 渲染出错兜底 */
+.error-boundary { padding: 40px; text-align: center; color: #c0392b; }
+.error-boundary h2 { margin-bottom: 8px; }
+.error-boundary p { color: #555; margin-bottom: 16px; word-break: break-all; }
+.error-boundary button { padding: 8px 18px; border: none; background: #3a6df0; color: #fff; border-radius: 8px; cursor: pointer; }
+
 /* 树视图（轻量） */
 .tree-view { padding: 8px 0; }
 .tv-node { padding: 8px 10px; border-left: 2px solid #cdd5e0; margin: 6px 0; }

@@ -31,7 +31,10 @@ router.get('/:id', (req, res) => {
   const nodes = db
     .prepare('SELECT * FROM context_elements WHERE tree_id = ? ORDER BY created_at ASC')
     .all(tree.id);
-  res.json({ ...tree, nodes });
+  // resources 在 DB 中以 JSON 文本存储，前端按数组消费；解析成数组（无则 []），
+  // 避免前端对字符串调用 .map 导致渲染崩溃（之前曾因此白屏）。
+  const parsedNodes = nodes.map((n) => ({ ...n, resources: parseResources(n.resources) }));
+  res.json({ ...tree, nodes: parsedNodes });
 });
 
 // 删除整棵对话树：事务内级联删除其全部节点（含 tags/summary/embedding/context_trace 等元数据列）与该树记录
@@ -95,8 +98,11 @@ router.get('/:id/export', (req, res) => {
     return res.send(md);
   }
 
+  // resources 在 DB 中以 JSON 文本存储，前端按数组消费；这里解析成数组（无则 []），
+  // 避免前端对字符串调用 .map 导致渲染崩溃（之前曾因此白屏）。
+  const parsedNodes = nodes.map((n) => ({ ...n, resources: parseResources(n.resources) }));
   res.setHeader('Content-Disposition', `attachment; filename="${baseName}.json"`);
-  res.json({ tree, nodes });
+  res.json({ tree, nodes: parsedNodes });
 });
 
 // 导入：接收导出格式的 { tree, nodes }，重建为新树（重新生成 id 并映射 parent_id）
@@ -186,5 +192,3 @@ function parseResources(resourcesJson) {
 }
 
 export default router;
-// test
-// t
