@@ -1,4 +1,5 @@
 import { Resource } from '../api';
+import { uuid } from './uuid';
 
 const CODE_EXT = [
   '.js', '.jsx', '.ts', '.tsx', '.py', '.java', '.cpp', '.c', '.h', '.hpp',
@@ -52,7 +53,7 @@ export async function fileToResource(file: File): Promise<Resource> {
   let content = await readFileAsDataURL(file);
   if (kind === 'image') content = await resizeImage(content, 2048);
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     kind,
     mime: file.type || undefined,
     filename: file.name,
@@ -64,7 +65,7 @@ export async function fileToResource(file: File): Promise<Resource> {
 export function textToResource(text: string): Resource {
   const looksLikeCode = text.includes('\n') && /[{}();=]|=>|function|def |class |import |SELECT /i.test(text);
   return {
-    id: crypto.randomUUID(),
+    id: uuid(),
     kind: looksLikeCode ? 'code' : 'text',
     content: text,
   };

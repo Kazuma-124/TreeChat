@@ -5,6 +5,7 @@ import TreeView from './TreeView';
 import ConversationCard from './ConversationCard';
 import ResourceTray from './ResourceTray';
 import { textToResource } from '../utils/resources';
+import { uuid } from '../utils/uuid';
 
 const ROOT = 'ROOT';
 const key = (id: string | null) => id ?? ROOT;
@@ -102,7 +103,7 @@ export default function ChatWindow({
 
   const streamSend = useCallback<StreamSend>(
     async ({ parentId, userMessage, isVolatile, contextElementIds, resources }) => {
-      const tempId = crypto.randomUUID();
+      const tempId = uuid();
       const parent = localNodes.find((n) => n.id === parentId);
       const depth = parent ? parent.depth + 1 : 0;
       const temp: ContextElement = {
