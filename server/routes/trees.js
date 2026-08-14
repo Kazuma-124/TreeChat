@@ -119,8 +119,8 @@ router.post('/import', (req, res) => {
   const insert = db.prepare(
     `INSERT INTO context_elements
       (id, tree_id, parent_id, sibling_index, depth, user_message, ai_message, model,
-       model_config, status, summary, tags, token_count, context_element_ids, embedding, is_volatile, created_at, updated_at)
-     VALUES (@id,@tree_id,@parent_id,@sibling_index,@depth,@user_message,@ai_message,@model,@model_config,'completed',@summary,@tags,@token_count,@context_element_ids,@embedding,@is_volatile,@created_at,@updated_at)`
+       model_config, status, summary, tags, token_count, context_element_ids, embedding, is_volatile, resources, has_resource, created_at, updated_at)
+     VALUES (@id,@tree_id,@parent_id,@sibling_index,@depth,@user_message,@ai_message,@model,@model_config,'completed',@summary,@tags,@token_count,@context_element_ids,@embedding,@is_volatile,@resources,@has_resource,@created_at,@updated_at)`
   );
   const importNow = Date.now();
   for (const n of nodes) {
@@ -140,6 +140,8 @@ router.post('/import', (req, res) => {
       context_element_ids: n.context_element_ids ?? null,
       embedding: n.embedding ?? null,
       is_volatile: n.is_volatile ? 1 : 0,
+      resources: n.resources ?? null,
+      has_resource: n.has_resource ? 1 : 0,
       created_at: importNow,
       updated_at: importNow,
     });
@@ -154,11 +156,33 @@ function toMarkdown(tree, nodes) {
   for (const n of nodes) {
     const indent = '  '.repeat(n.depth || 0);
     lines.push(`${indent}> **Q:** ${n.user_message || ''}`);
+    // 资源：仅导出描述/文件名/标签，不导出 base64 原文（体积过大且无意义）
+    const res = parseResources(n.resources);
+    if (res.length) {
+      lines.push(`${indent}> **资源(${res.length}):**`);
+      for (const r of res) {
+        const meta = [r.kind || '', r.filename || ''].filter(Boolean).join(' · ');
+        const desc = r.description ? ` — ${r.description}` : '';
+        const tags = Array.isArray(r.tags) && r.tags.length ? `  [${r.tags.join(', ')}]` : '';
+        lines.push(`${indent}>   - ${meta}${desc}${tags}`);
+      }
+    }
     if (n.ai_message) lines.push(`${indent}> **A:** ${n.ai_message}`);
     if (n.summary) lines.push(`${indent}> *摘要: ${n.summary}*`);
     lines.push('');
   }
   return lines.join('\n');
+}
+
+// 安全解析 resources JSON（导出 markdown 时用），解析失败返回空数组
+function parseResources(resourcesJson) {
+  if (!resourcesJson) return [];
+  try {
+    const arr = JSON.parse(resourcesJson);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
 }
 
 export default router;
