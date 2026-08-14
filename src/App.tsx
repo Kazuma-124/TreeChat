@@ -11,9 +11,13 @@ export default function App() {
   const [loading, setLoading] = useState(false);
 
   const loadTrees = useCallback(async () => {
-    const t = await api.listTrees();
-    setTrees(t);
-    setTreeId((cur) => cur ?? t[0]?.id ?? null);
+    try {
+      const t = await api.listTrees();
+      setTrees(t);
+      setTreeId((cur) => cur ?? t[0]?.id ?? null);
+    } catch (e) {
+      console.error('加载对话树列表失败：', e);
+    }
   }, []);
 
   const loadTree = useCallback(async (id: string) => {
@@ -21,6 +25,9 @@ export default function App() {
     try {
       const t = await api.getTree(id);
       setNodes(t.nodes);
+    } catch (e) {
+      console.error('加载对话树失败：', e);
+      setNodes([]);
     } finally {
       setLoading(false);
     }
@@ -35,9 +42,14 @@ export default function App() {
   }, [treeId, loadTree]);
 
   const createTree = async () => {
-    const t = await api.createTree();
-    setTrees((p) => [t, ...p]);
-    setTreeId(t.id);
+    try {
+      const t = await api.createTree();
+      setTrees((p) => [t, ...p]);
+      setTreeId(t.id);
+    } catch (e) {
+      console.error('创建对话树失败：', e);
+      alert('创建对话树失败：' + (e as Error).message);
+    }
   };
 
   const refresh = () => {
