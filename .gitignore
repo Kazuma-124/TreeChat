@@ -23,3 +23,6 @@ dist-ssr/
 _d_tree.json
 _d_*.json
 _t_*.json
+
+# 开发自用目录（本地笔记 / 部署指南等，不入库）
+develop_use/
