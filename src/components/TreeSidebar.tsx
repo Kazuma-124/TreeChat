@@ -10,6 +10,7 @@ export default function TreeSidebar({
   onSearchSelect,
   onDeleteTree,
   onRenameTree,
+  onOpenApi,
 }: {
   trees: Tree[];
   currentId: string | null;
@@ -19,6 +20,7 @@ export default function TreeSidebar({
   onSearchSelect: (treeId: string, nodeId: string) => void;
   onDeleteTree: (id: string) => void;
   onRenameTree: (id: string) => void;
+  onOpenApi: () => void;
 }) {
   const exportJson = async (id: string) => {
     const text = await api.exportTree(id, 'json');
@@ -80,6 +82,7 @@ export default function TreeSidebar({
       </div>
 
       <div className="sidebar-user">
+        <button className="user-api" onClick={onOpenApi} title="API 配置方案（与账号绑定，随时可配）">⚙ API</button>
         <span className="user-name" title={me?.username}>{me?.username ?? '未登录'}{me?.is_admin ? '（管理员）' : ''}</span>
         <button className="user-logout" onClick={logout} title="退出登录">退出</button>
       </div>

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, ContextElement, Tree } from './api';
 import TreeSidebar from './components/TreeSidebar';
 import ChatWindow from './components/ChatWindow';
+import ApiSettings from './components/ApiSettings';
 import ErrorBoundary from './components/ErrorBoundary';
 
 export default function App() {
@@ -9,6 +10,7 @@ export default function App() {
   const [treeId, setTreeId] = useState<string | null>(null);
   const [nodes, setNodes] = useState<ContextElement[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showApi, setShowApi] = useState(false);
 
   const loadTrees = useCallback(async () => {
     try {
@@ -111,6 +113,7 @@ export default function App() {
           onSearchSelect={onSearchSelect}
           onDeleteTree={onDeleteTree}
           onRenameTree={onRenameTree}
+          onOpenApi={() => setShowApi(true)}
         />
         <main className="main">
           {treeId ? (
@@ -129,6 +132,7 @@ export default function App() {
           )}
         </main>
       </div>
+      {showApi && <ApiSettings onClose={() => setShowApi(false)} />}
     </ErrorBoundary>
   );
 }
