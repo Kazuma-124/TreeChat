@@ -3,13 +3,13 @@ import db from '../db.js';
 import { getAncestorChain } from './treeTraversal.js';
 import { retrieveContext } from './contextRetriever.js';
 import { buildContext } from './contextBuilder.js';
-import { generateAnswer, generateAnswerStream } from './chatGenerator.js';
+import { generateAnswer, generateAnswerStream, generateResourceMetas } from './chatGenerator.js';
 
 // 发送消息的统一核心：建节点(pending) → 检索 → 组装 → 生成(可流式) → 元数据 → 落库。
 // onStart: 节点建好后回调 {id}（流式场景用于前端占位）
 // onToken: 每个 token 块回调（流式场景）
 // 返回最终完整节点对象。
-export async function processMessage({ treeId, parentId, userMessage, model, isVolatile, contextElementIds, onStart, onToken }) {
+export async function processMessage({ treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources, onStart, onToken }) {
   const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(treeId);
   if (!tree) throw new Error('tree not found');
   if (!userMessage) throw new Error('userMessage required');
@@ -50,13 +50,16 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   }
   const ancestorIds = ancestorChain.map((n) => n.id);
 
-  // 先落库 pending，并通知前端（流式场景）
+  // 先落库 pending，并通知前端（流式场景）；resources 一并写入，has_resource 标记是否有资源
   db.prepare(
     `INSERT INTO context_elements
       (id, tree_id, parent_id, sibling_index, depth, user_message, ai_message,
-       model, model_config, status, is_volatile, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,NULL,?,?, 'pending', ?, ?, ?)`
-  ).run(id, treeId, parentId ?? null, siblingIndex, depth, userMessage, usedModel, '{}', isVolatile ? 1 : 0, now, now);
+       model, model_config, status, resources, has_resource, is_volatile, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,NULL,?,?, 'pending', ?, ?, ?, ?, ?)`
+  ).run(
+    id, treeId, parentId ?? null, siblingIndex, depth, userMessage, usedModel, '{}',
+    isVolatile ? 1 : 0, JSON.stringify(resources || []), (resources && resources.length) ? 1 : 0, now, now
+  );
   if (onStart) onStart({ id, treeId, parentId, userMessage });
 
   // 组装上下文（直接 / 跨分支）
@@ -103,10 +106,11 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
         contextGroups: { direct, cross },
         userMessage,
         model: usedModel,
+        resources,
         onToken,
       });
     } else {
-      result = await generateAnswer({ contextGroups: { direct, cross }, userMessage, model: usedModel });
+      result = await generateAnswer({ contextGroups: { direct, cross }, userMessage, model: usedModel, resources });
     }
   } catch (e) {
     db.prepare("UPDATE context_elements SET status = 'error', updated_at = ? WHERE id = ?").run(now, id);
@@ -115,6 +119,27 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   const answer = result.answer;
   const meta = { summary: result.summary, tags: result.tags };
 
+  // 为每份资源生成「简介 + 标签」（Phase 4 会迁移到模块模型；此处先用主模型）
+  let metas = [];
+  try {
+    metas = await generateResourceMetas(resources || [], usedModel);
+  } catch (e) {
+    console.error('generateResourceMetas failed:', e.message);
+  }
+  const enriched = (resources || []).map((r, i) => ({
+    ...r,
+    description: metas[i]?.description || '',
+    tags: metas[i]?.tags || [],
+  }));
+  const resourceTags = enriched.flatMap((r) => r.tags || []);
+  const summaryWithRes = [
+    meta.summary,
+    enriched.length ? '［资源］' + enriched.map((r) => r.description).filter(Boolean).join('； ') : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const allTags = Array.from(new Set([...(meta.tags || []), ...resourceTags])).slice(0, 8);
+
   const directIds = direct.map((n) => n.id);
   const crossIds = cross.map((n) => n.id);
   const trace = JSON.stringify({ direct: directIds, cross: crossIds, reasoning: retrieval.reasoning });
@@ -122,11 +147,12 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   db.prepare(
     `UPDATE context_elements
      SET ai_message = ?, status = 'completed', summary = ?, tags = ?,
-         context_element_ids = ?, context_trace = ?, token_count = ?, updated_at = ?
+         context_element_ids = ?, context_trace = ?, token_count = ?, resources = ?, has_resource = ?, updated_at = ?
      WHERE id = ?`
   ).run(
-    answer, meta.summary, JSON.stringify(meta.tags),
-    JSON.stringify([...directIds, ...crossIds]), trace, Math.ceil(answer.length / 4), now, id
+    answer, summaryWithRes, JSON.stringify(allTags),
+    JSON.stringify([...directIds, ...crossIds]), trace, Math.ceil(answer.length / 4),
+    JSON.stringify(enriched), enriched.length ? 1 : 0, now, id
   );
 
   db.prepare('UPDATE conversation_trees SET updated_at = ? WHERE id = ?').run(now, treeId);

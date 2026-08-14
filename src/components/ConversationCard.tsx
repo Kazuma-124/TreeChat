@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
-import { ContextElement, api } from '../api';
+import { ContextElement, Resource, api } from '../api';
 import CodeBlock from './CodeBlock';
 import SubQuestion from './SubQuestion';
 import ContextSourcePanel from './ContextSourcePanel';
@@ -14,6 +14,7 @@ export type StreamSend = (opts: {
   userMessage: string;
   isVolatile?: boolean;
   contextElementIds?: string[];
+  resources?: Resource[];
 }) => Promise<string | null>;
 
 // 单个节点的完整展示卡片（节点展示视图的基本单元）。
@@ -47,7 +48,7 @@ export default function ConversationCard({
 
   // 子提问：乐观跳转——提交即先跳到新子节点所在的下一层（直接携带 parentId），
   // 不等流式返回，避免请求失败或新节点尚未载入 localNodes 时跳转失效；返回后再高亮新节点。
-  const handleSub = async (opts: { parentId: string; userMessage: string; isVolatile?: boolean }) => {
+  const handleSub = async (opts: { parentId: string; userMessage: string; isVolatile?: boolean; resources?: Resource[] }) => {
     onFocus('', opts.parentId);
     const newId = await onStreamSend(opts);
     if (newId) onFocus(newId, opts.parentId);
@@ -57,6 +58,23 @@ export default function ConversationCard({
     <div className={`conv-card depth-${node.depth}${focused ? ' focused' : ''}`}>
       <div ref={qRef} className="msg user">
         <div className="msg-body">🙋 {node.user_message}</div>
+        {node.resources && node.resources.length > 0 ? (
+          <div className="card-resources">
+            {node.resources.map((r) => (
+              <span className="card-resource" key={r.id} title={r.description || r.content}>
+                {r.kind === 'image' && r.content ? (
+                  <img src={r.content} className="card-resource-thumb" alt="资源" />
+                ) : (
+                  <span className="card-resource-name">
+                    {r.kind === 'image' ? '图片' : r.filename || (r.kind === 'code' ? '代码' : '文本')}
+                    {r.content ? ` · ${(r.content || '').slice(0, 30).replace(/\n/g, ' ')}` : ''}
+                  </span>
+                )}
+                {r.description ? <em className="card-resource-desc">（{r.description}）</em> : null}
+              </span>
+            ))}
+          </div>
+        ) : null}
         <div className="msg-actions">
           <CopyButton text={node.user_message} />
           {node.is_volatile && node.status === 'completed' ? (

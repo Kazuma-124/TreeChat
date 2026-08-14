@@ -104,6 +104,7 @@ export function sendMessageStream(opts: {
   model?: string;
   isVolatile?: boolean;
   contextElementIds?: string[];
+  resources?: Resource[];
   onStart?: (info: { id: string }) => void;
   onToken?: (delta: string) => void;
   onDone?: (node: ContextElement) => void;
@@ -116,6 +117,7 @@ export function sendMessageStream(opts: {
       userMessage: opts.userMessage,
       model: opts.model,
       isVolatile: opts.isVolatile,
+      resources: opts.resources,
     });
     fetch('/api/chat/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
       .then(async (resp) => {
@@ -197,6 +199,7 @@ export const api = {
     userMessage: string;
     isVolatile?: boolean;
     contextElementIds?: string[];
+    resources?: Resource[];
   }) => req<ContextElement>('/api/chat/send', { method: 'POST', body: JSON.stringify(body) }),
   deleteNode: (id: string, mode: 'merge' | 'discard') =>
     req<{ ok: boolean }>(`/api/chat/${id}?mode=${mode}`, { method: 'DELETE' }),

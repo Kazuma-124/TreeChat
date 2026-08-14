@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ContextElement, api, sendMessageStream, DEFAULT_MODEL } from '../api';
+import { ContextElement, Resource, api, sendMessageStream, DEFAULT_MODEL } from '../api';
 import ModelSelector from './ModelSelector';
 import TreeView from './TreeView';
 import ConversationCard from './ConversationCard';
 import ApiSettings from './ApiSettings';
+import ResourceTray from './ResourceTray';
+import { textToResource } from '../utils/resources';
 
 const ROOT = 'ROOT';
 const key = (id: string | null) => id ?? ROOT;
@@ -13,6 +15,7 @@ export type StreamSend = (opts: {
   userMessage: string;
   isVolatile?: boolean;
   contextElementIds?: string[];
+  resources?: Resource[];
 }) => Promise<string | null>;
 
 // 层级分页式节点展示视图：
@@ -35,6 +38,7 @@ export default function ChatWindow({
   loading: boolean;
 }) {
   const [input, setInput] = useState('');
+  const [resources, setResources] = useState<Resource[]>([]);
   const [sending, setSending] = useState(false);
   const [model, setModel] = useState(DEFAULT_MODEL);
   const [currentParentId, setCurrentParentId] = useState<string | null>(null);
@@ -98,7 +102,7 @@ export default function ChatWindow({
   }
 
   const streamSend = useCallback<StreamSend>(
-    async ({ parentId, userMessage, isVolatile, contextElementIds }) => {
+    async ({ parentId, userMessage, isVolatile, contextElementIds, resources }) => {
       const tempId = crypto.randomUUID();
       const parent = localNodes.find((n) => n.id === parentId);
       const depth = parent ? parent.depth + 1 : 0;
@@ -120,6 +124,8 @@ export default function ChatWindow({
         context_trace: null,
         embedding: null,
         is_volatile: isVolatile ? 1 : 0,
+        resources: resources || [],
+        has_resource: resources && resources.length ? 1 : 0,
         created_at: Date.now(),
         updated_at: Date.now(),
       };
@@ -134,6 +140,7 @@ export default function ChatWindow({
           model,
           isVolatile,
           contextElementIds,
+          resources,
           onStart: (info) => {
             newId = info.id;
           },
@@ -165,12 +172,23 @@ export default function ChatWindow({
   );
 
   const sendCurrent = () => {
-    if (!input.trim()) return;
+    if (!input.trim() && resources.length === 0) return;
     const text = input;
+    const res = resources;
     setInput('');
-    streamSend({ parentId: currentParentId, userMessage: text }).then((newId) => {
+    setResources([]);
+    streamSend({ parentId: currentParentId, userMessage: text, resources: res }).then((newId) => {
       if (newId) setFocus(newId);
     });
+  };
+
+  // 粘贴大段文本/代码时，转为资源而非塞进输入框（避免输入框被撑爆）
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (text.length > 200) {
+      e.preventDefault();
+      setResources((prev) => [...prev, textToResource(text)]);
+    }
   };
 
   const handleFocus = (id: string, parentId?: string | null) => {
@@ -342,12 +360,14 @@ export default function ChatWindow({
       )}
 
       <div className="composer">
+        <ResourceTray resources={resources} onChange={setResources} disabled={sending || loading} />
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onPaste={handlePaste}
           placeholder={
             currentParentId === null
-              ? '输入根问题…（Enter 换行，点击发送）'
+              ? '输入根问题…（Enter 换行，点击发送；粘贴大段文本/代码会自动转为资源）'
               : `在「${(currentParentNode?.user_message ?? '').slice(0, 16)}」下发送子问题…`
           }
         />

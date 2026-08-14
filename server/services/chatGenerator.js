@@ -44,7 +44,11 @@ function parseGenerated(raw) {
   }
 }
 
-function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMPT }) {
+function kindLabel(kind) {
+  return kind === 'image' ? '图片' : kind === 'code' ? '代码' : kind === 'file' ? '文件' : '文本';
+}
+
+function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMPT, resources }) {
   const direct = contextGroups.direct || [];
   const cross = contextGroups.cross || [];
   const messages = [{ role: 'system', content: systemPrompt }];
@@ -62,15 +66,28 @@ function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMP
       if (ce.aiMessage) messages.push({ role: 'assistant', content: ce.aiMessage });
     }
   }
-  messages.push({ role: 'user', content: userMessage });
+  // 当前轮资源：图片走多模态 image_url，文本/代码作为附加文本块；无资源时仍是纯文本
+  if (resources && resources.length) {
+    const parts = [{ type: 'text', text: userMessage }];
+    for (const r of resources) {
+      if (r.kind === 'image' && r.content) {
+        parts.push({ type: 'image_url', image_url: { url: r.content } });
+      } else if (r.content) {
+        parts.push({ type: 'text', text: `【用户附带的${kindLabel(r.kind)}】\n${r.content}` });
+      }
+    }
+    messages.push({ role: 'user', content: parts });
+  } else {
+    messages.push({ role: 'user', content: userMessage });
+  }
   return messages;
 }
 
 // 非流式：返回 { answer, summary, tags }
-export async function generateAnswer({ contextGroups, userMessage, model, systemPrompt }) {
+export async function generateAnswer({ contextGroups, userMessage, model, systemPrompt, resources }) {
   const cfg = resolveConfig(model);
-  if (cfg.mock) return mockResult({ ...contextGroups, userMessage, model: cfg.model });
-  const messages = buildMessages({ contextGroups, userMessage, systemPrompt });
+  if (cfg.mock) return mockResult({ ...contextGroups, userMessage, model: cfg.model, resources });
+  const messages = buildMessages({ contextGroups, userMessage, systemPrompt, resources });
   const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
@@ -96,7 +113,7 @@ export async function generateAnswerStream({ contextGroups, userMessage, model, 
     return mockResult({ ...contextGroups, userMessage, model: cfg.model });
   }
 
-  const messages = buildMessages({ contextGroups, userMessage, systemPrompt });
+  const messages = buildMessages({ contextGroups, userMessage, systemPrompt, resources });
   const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
@@ -159,14 +176,16 @@ export async function generateAnswerStream({ contextGroups, userMessage, model, 
   return parseGenerated(full);
 }
 
-function mockAnswer({ direct, cross, userMessage, model }) {
+function mockAnswer({ direct, cross, userMessage, model, resources }) {
   const dCount = (direct || []).length;
   const cCount = (cross || []).length;
+  const rCount = (resources || []).length;
   const dLines = (direct || []).map((n, i) => `  ${i + 1}. ${n.userMessage.slice(0, 30)}`).join('\n');
   const cLines = (cross || []).map((n, i) => `  ${i + 1}. ${n.userMessage.slice(0, 30)}`).join('\n');
   return (
     `[MOCK 模式] 模型=${model}\n\n` +
     `你问：「${userMessage.slice(0, 80)}」\n` +
+    (rCount ? `\n【附带资源 ${rCount} 份（图片/文本/代码），此处仅占位，真实调用会传入模型】\n` : '') +
     (dCount ? `\n【直接上下文·祖先路径 ${dCount} 条】\n${dLines}\n` : '\n（无祖先上下文，这是根问题）\n') +
     (cCount ? `\n【跨分支召回 ${cCount} 条】\n${cLines}\n` : '\n（无跨分支召回）\n') +
     '\n这是离线假回答，用于验证流程。配置真实 OPENAI_BASE_URL + OPENAI_API_KEY 后即为真实回答。'
@@ -174,11 +193,67 @@ function mockAnswer({ direct, cross, userMessage, model }) {
 }
 
 // MOCK 模式：顺便给一份假元数据，保证下游解析路径与真实调用一致。
-function mockResult({ userMessage }) {
-  const full = mockAnswer({ ...arguments[0] });
+function mockResult({ userMessage, resources }) {
+  const full = mockAnswer({ ...arguments[0], resources });
   const summary = full.replace(/\n+/g, ' ').slice(0, 80);
   const tags = Array.from(
     new Set(userMessage.split(/[\s，。？！、：,.:!?]+/).filter((w) => w.length >= 2))
   ).slice(0, 5);
   return { answer: full, summary, tags };
+}
+
+// 为一份或多份资源生成「简介 + 标签」（模型一次调用，返回与输入顺序对齐的数组）。
+// 图片以多模态 image_url 传入；文本/代码作为文本块传入。失败时返回空描述，不阻断主流程。
+export async function generateResourceMetas(resources, model) {
+  const list = resources || [];
+  if (!list.length) return [];
+  const cfg = resolveConfig(model);
+  if (cfg.mock) return list.map(() => ({ description: '［示例资源描述］', tags: ['资源'] }));
+
+  const parts = [
+    {
+      type: 'text',
+      text:
+        '以下是用户附带的多份素材。请严格按 JSON 数组返回，每个元素对应一份素材：\n' +
+        '[{"description":"用中文一句话简述这份素材的内容","tags":["最多3个中文关键词"]}]\n' +
+        '数组长度需与素材数量一致，不要输出多余内容。',
+    },
+  ];
+  for (const r of list) {
+    if (r.kind === 'image' && r.content) {
+      parts.push({ type: 'image_url', image_url: { url: r.content } });
+    } else if (r.content) {
+      parts.push({ type: 'text', text: `【${kindLabel(r.kind)}】\n${String(r.content).slice(0, 3000)}` });
+    }
+  }
+
+  try {
+    const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
+      body: JSON.stringify({
+        model: cfg.model,
+        messages: [{ role: 'user', content: parts }],
+        temperature: 0.3,
+      }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`LLM API ${resp.status}: ${text}`);
+    }
+    const data = await resp.json();
+    const raw = data.choices?.[0]?.message?.content || '[]';
+    const arr = JSON.parse(raw.replace(/^[\s\S]*?\[/, '[').replace(/\][\s\S]*$/, ']'));
+    if (!Array.isArray(arr)) throw new Error('not array');
+    return list.map((_, i) => {
+      const it = arr[i] || {};
+      return {
+        description: String(it.description || ''),
+        tags: Array.isArray(it.tags) ? it.tags.slice(0, 5).map(String) : [],
+      };
+    });
+  } catch (e) {
+    console.error('generateResourceMetas failed:', e.message);
+    return list.map(() => ({ description: '', tags: [] }));
+  }
 }

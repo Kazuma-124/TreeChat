@@ -7,8 +7,8 @@ const router = Router();
 // 非流式发送（保留兼容 / 测试用）
 router.post('/send', async (req, res) => {
   try {
-    const { treeId, parentId, userMessage, model, isVolatile, contextElementIds } = req.body;
-    const node = await processMessage({ treeId, parentId, userMessage, model, isVolatile, contextElementIds });
+    const { treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources } = req.body;
+    const node = await processMessage({ treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources });
     res.json(node);
   } catch (e) {
     console.error(e);
@@ -20,7 +20,7 @@ router.post('/send', async (req, res) => {
 // SSE 流式发送：返回 text/event-stream，事件 start / token / done / error
 router.post('/stream', async (req, res) => {
   try {
-    const { treeId, parentId, userMessage, model, isVolatile, contextElementIds } = req.body;
+    const { treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources } = req.body;
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -35,6 +35,7 @@ router.post('/stream', async (req, res) => {
       model,
       isVolatile,
       contextElementIds,
+      resources,
       onStart: (info) => send('start', info),
       onToken: (delta) => send('token', { delta }),
     });
