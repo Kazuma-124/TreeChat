@@ -87,7 +87,10 @@ body {
 
 /* 底部输入 */
 .composer { display: flex; gap: 10px; padding: 14px 24px; border-top: 1px solid #e6e8eb; background: #fff; }
-.composer textarea { flex: 1; min-height: 44px; resize: vertical; border: 1px solid #d6dae0; border-radius: 8px; padding: 10px; font-family: inherit; }
+.composer-input { position: relative; flex: 1; min-width: 0; }
+.composer textarea { width: 100%; box-sizing: border-box; min-height: 44px; resize: none; border: 1px solid #d6dae0; border-radius: 8px; padding: 10px; font-family: inherit; }
+.composer-resize { position: absolute; top: 5px; right: 7px; width: 14px; height: 14px; cursor: ns-resize; border-top: 2px solid #b9c0c9; border-right: 2px solid #b9c0c9; border-top-right-radius: 3px; opacity: 0.5; }
+.composer-resize:hover { opacity: 1; border-color: #3a6df0; }
 .composer button { padding: 0 22px; border: none; background: #3a6df0; color: #fff; border-radius: 8px; cursor: pointer; font-size: 15px; }
 .composer button:disabled { opacity: 0.6; cursor: default; }
 

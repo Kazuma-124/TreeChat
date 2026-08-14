@@ -48,6 +48,7 @@ export default function ChatWindow({
   const [nextOpen, setNextOpen] = useState(true);
   const [localNodes, setLocalNodes] = useState<ContextElement[]>(nodes);
   const downLevelRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setLocalNodes(nodes);
@@ -199,6 +200,28 @@ export default function ChatWindow({
       if (n) setCurrentParentId(n.parent_id);
     }
     setFocus(id);
+  };
+
+  // 自定义拖动调整输入框高度：把手放在输入框右上角，向下拖拽即增高（输入框底部贴底，故视觉上向上展开）
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const startY = e.clientY;
+    const startH = ta.offsetHeight;
+    const onMove = (ev: MouseEvent) => {
+      // 输入框底部贴底，故向上拖动右上角把手 = 增高（顶部随鼠标上移，符合直觉）
+      const next = Math.max(44, Math.min(500, startH + (startY - ev.clientY)));
+      ta.style.height = next + 'px';
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   };
 
   const handleDelete = useCallback(
@@ -358,16 +381,24 @@ export default function ChatWindow({
 
       <div className="composer">
         <ResourceTray resources={resources} onChange={setResources} disabled={sending || loading} />
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onPaste={handlePaste}
-          placeholder={
-            currentParentId === null
-              ? '输入根问题…（Enter 换行，点击发送；粘贴大段文本/代码会自动转为资源）'
-              : `在「${(currentParentNode?.user_message ?? '').slice(0, 16)}」下发送子问题…`
-          }
-        />
+        <div className="composer-input">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onPaste={handlePaste}
+            placeholder={
+              currentParentId === null
+                ? '输入根问题…（Enter 换行，点击发送；粘贴大段文本/代码会自动转为资源）'
+                : `在「${(currentParentNode?.user_message ?? '').slice(0, 16)}」下发送子问题…`
+            }
+          />
+          <div
+            className="composer-resize"
+            title="拖动调整输入框高度"
+            onMouseDown={startResize}
+          />
+        </div>
         <button onClick={sendCurrent} disabled={sending || loading}>
           {sending ? '生成中…' : '发送'}
         </button>
