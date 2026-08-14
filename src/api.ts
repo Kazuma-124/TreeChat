@@ -18,6 +18,24 @@ export interface ContextElement {
   is_volatile: number;
   created_at: number;
   updated_at: number;
+  resources?: Resource[];
+  has_resource?: number;
+}
+
+export interface Resource {
+  id: string;
+  kind: 'image' | 'text' | 'code' | 'file';
+  mime?: string;
+  filename?: string;
+  content?: string; // base64（image）或原文（text/code）
+  description?: string; // 模型生成的资源简介
+  tags?: string[];
+}
+
+export interface PairedModel {
+  config_id: string;
+  role: string; // 例如 'vision' | 'ocr' ...
+  enabled: boolean;
 }
 
 export interface Tree {
@@ -37,6 +55,7 @@ export interface ApiConfig {
   model: string;
   is_mock: number;
   is_active: number;
+  paired_models?: PairedModel[];
   created_at: number;
   updated_at: number;
 }
@@ -47,6 +66,7 @@ export type ApiConfigInput = {
   api_key: string;
   model?: string;
   is_mock?: boolean;
+  paired_models?: PairedModel[];
 };
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {

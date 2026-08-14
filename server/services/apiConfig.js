@@ -25,13 +25,21 @@ function maskKey(k) {
   return k.slice(0, 4) + '****' + k.slice(-4);
 }
 
+function parseJSON(s, fallback) {
+  try {
+    return s ? JSON.parse(s) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 export function listConfigs() {
   const rows = db
     .prepare(
-      'SELECT id, name, base_url, api_key, model, is_mock, is_active, created_at, updated_at FROM api_configs ORDER BY is_active DESC, updated_at DESC'
+      'SELECT id, name, base_url, api_key, model, is_mock, is_active, paired_models, created_at, updated_at FROM api_configs ORDER BY is_active DESC, updated_at DESC'
     )
     .all();
-  return rows.map((r) => ({ ...r, api_key: maskKey(decrypt(r.api_key)) }));
+  return rows.map((r) => ({ ...r, api_key: maskKey(decrypt(r.api_key)), paired_models: parseJSON(r.paired_models, []) }));
 }
 
 export function getConfig(id) {
@@ -40,6 +48,7 @@ export function getConfig(id) {
     const dk = decrypt(row.api_key);
     // 解密失败（主密钥已变更）：返回空串，强制用户在编辑表单重新填入，避免把密文二次加密。
     row.api_key = isEncrypted(dk) ? '' : dk;
+    row.paired_models = parseJSON(row.paired_models, []);
   }
   return row;
 }
@@ -59,15 +68,15 @@ export function getActiveConfig() {
   return row || envFallback();
 }
 
-export function createConfig({ name, base_url, api_key, model, is_mock }) {
+export function createConfig({ name, base_url, api_key, model, is_mock, paired_models }) {
   const id = randomUUID();
   const now = Date.now();
   const exists = db.prepare('SELECT COUNT(*) AS c FROM api_configs').get().c;
   const is_active = exists === 0 ? 1 : 0; // 首个配置自动启用
   db.prepare(
-    `INSERT INTO api_configs (id, name, base_url, api_key, model, is_mock, is_active, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?)`
-  ).run(id, name, base_url, encrypt(api_key), model, is_mock ? 1 : 0, is_active, now, now);
+    `INSERT INTO api_configs (id, name, base_url, api_key, model, is_mock, is_active, paired_models, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`
+  ).run(id, name, base_url, encrypt(api_key), model, is_mock ? 1 : 0, is_active, JSON.stringify(paired_models || []), now, now);
   return getConfig(id);
 }
 
@@ -80,9 +89,10 @@ export function updateConfig(id, fields) {
   const api_key = fields.api_key != null ? encrypt(fields.api_key) : cur.api_key;
   const model = fields.model ?? cur.model;
   const is_mock = fields.is_mock !== undefined ? (fields.is_mock ? 1 : 0) : cur.is_mock;
+  const paired_models = fields.paired_models != null ? JSON.stringify(fields.paired_models) : cur.paired_models;
   db.prepare(
-    'UPDATE api_configs SET name=?, base_url=?, api_key=?, model=?, is_mock=?, updated_at=? WHERE id=?'
-  ).run(name, base_url, api_key, model, is_mock, Date.now(), id);
+    'UPDATE api_configs SET name=?, base_url=?, api_key=?, model=?, is_mock=?, paired_models=?, updated_at=? WHERE id=?'
+  ).run(name, base_url, api_key, model, is_mock, paired_models, Date.now(), id);
   return getConfig(id);
 }
 

@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS context_elements (
   token_count         INTEGER NOT NULL DEFAULT 0,
   context_element_ids TEXT,
   embedding           TEXT,
+  resources           TEXT,
   is_volatile         INTEGER NOT NULL DEFAULT 0,
+  has_resource        INTEGER NOT NULL DEFAULT 0,
   created_at          INTEGER NOT NULL,
   updated_at          INTEGER NOT NULL
 );
@@ -51,6 +53,7 @@ CREATE TABLE IF NOT EXISTS api_configs (
   model       TEXT NOT NULL,
   is_mock     INTEGER NOT NULL DEFAULT 0,
   is_active   INTEGER NOT NULL DEFAULT 0,
+  paired_models TEXT,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
 );
@@ -66,6 +69,21 @@ addColumnIfNotExists(
   'context_elements',
   'context_trace',
   'ALTER TABLE context_elements ADD COLUMN context_trace TEXT'
+);
+addColumnIfNotExists(
+  'context_elements',
+  'resources',
+  'ALTER TABLE context_elements ADD COLUMN resources TEXT'
+);
+addColumnIfNotExists(
+  'context_elements',
+  'has_resource',
+  'ALTER TABLE context_elements ADD COLUMN has_resource INTEGER NOT NULL DEFAULT 0'
+);
+addColumnIfNotExists(
+  'api_configs',
+  'paired_models',
+  'ALTER TABLE api_configs ADD COLUMN paired_models TEXT'
 );
 
 export default db;
