@@ -83,28 +83,57 @@ router.delete('/:id', (req, res) => {
     if (!node) return res.status(404).json({ error: 'node not found' });
 
     const children = db.prepare('SELECT * FROM context_elements WHERE parent_id = ?').all(id);
+    const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(node.tree_id);
+    const isRoot = !!tree && tree.root_node_id === id;
 
-    if (mode === 'merge' && children.length) {
-      // 子节点提升为被删节点的兄弟（沿用其 parent_id / sibling 顺序）
-      const baseSibling = db
-        .prepare('SELECT COUNT(*) AS c FROM context_elements WHERE parent_id = ?')
-        .get(node.parent_id).c;
-      children.forEach((c, i) => {
-        db.prepare('UPDATE context_elements SET parent_id = ?, sibling_index = ?, depth = ? WHERE id = ?')
-          .run(node.parent_id ?? null, baseSibling + i, (node.depth || 0), c.id);
-      });
-    } else {
-      // discard：递归删除子树
-      const stack = [id];
-      while (stack.length) {
-        const cur = stack.pop();
-        const kids = db.prepare('SELECT id FROM context_elements WHERE parent_id = ?').all(cur);
-        for (const k of kids) stack.push(k.id);
-        db.prepare('DELETE FROM context_elements WHERE id = ?').run(cur);
+    const del = db.transaction(() => {
+      if (mode === 'merge' && children.length) {
+        // 子节点提升为被删节点的兄弟（沿用其 parent_id / depth；sibling 排在已有兄弟之后）。
+        // 用 IS ? 以正确统计 parent_id 为 NULL 的顶层节点（= NULL 在 SQL 中不命中，必须用 IS）。
+        const baseSibling = db
+          .prepare('SELECT COUNT(*) AS c FROM context_elements WHERE parent_id IS ?')
+          .get(node.parent_id ?? null).c;
+        children.forEach((c, i) => {
+          db.prepare(
+            'UPDATE context_elements SET parent_id = ?, sibling_index = ?, depth = ? WHERE id = ?'
+          ).run(node.parent_id ?? null, baseSibling + i, node.depth || 0, c.id);
+        });
+        // 提升完子节点后，再删除本节点自身（此时它已无子节点）
+        db.prepare('DELETE FROM context_elements WHERE id = ?').run(id);
+      } else {
+        // discard：递归删除子树
+        const stack = [id];
+        while (stack.length) {
+          const cur = stack.pop();
+          const kids = db.prepare('SELECT id FROM context_elements WHERE parent_id = ?').all(cur);
+          for (const k of kids) stack.push(k.id);
+          db.prepare('DELETE FROM context_elements WHERE id = ?').run(cur);
+        }
       }
-    }
 
-    db.prepare('UPDATE conversation_trees SET updated_at = ? WHERE id = ?').run(Date.now(), node.tree_id);
+      // 被删节点恰为树的根时，重选 root_node_id，避免指向已不存在的节点
+      if (isRoot) {
+        if (mode === 'merge' && children.length) {
+          const nr = children[0];
+          db.prepare('UPDATE conversation_trees SET root_node_id = ?, title = ? WHERE id = ?')
+            .run(nr.id, (nr.user_message || '').slice(0, 60), tree.id);
+        } else {
+          const another = db
+            .prepare('SELECT * FROM context_elements WHERE tree_id = ? AND parent_id IS NULL LIMIT 1')
+            .get(tree.id);
+          db.prepare('UPDATE conversation_trees SET root_node_id = ?, title = ? WHERE id = ?')
+            .run(
+              another ? another.id : null,
+              another ? (another.user_message || '').slice(0, 60) : tree.title,
+              tree.id
+            );
+        }
+      }
+
+      db.prepare('UPDATE conversation_trees SET updated_at = ? WHERE id = ?').run(Date.now(), node.tree_id);
+    });
+    del();
+
     res.json({ ok: true, mode, id });
   } catch (e) {
     console.error(e);

@@ -202,10 +202,7 @@ export default function ChatWindow({
   };
 
   const handleDelete = useCallback(
-    async (id: string) => {
-      const mode = window.confirm('确定丢弃该节点？\n[确定] = 丢弃（含子树）\n[取消] = 合并到父节点')
-        ? 'discard'
-        : 'merge';
+    async (id: string, mode: 'merge' | 'discard' = 'discard') => {
       const target = localNodes.find((n) => n.id === id);
       await api.deleteNode(id, mode);
       if (currentParentId === id && target) setCurrentParentId(target.parent_id);

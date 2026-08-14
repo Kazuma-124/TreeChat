@@ -35,10 +35,11 @@ export default function ConversationCard({
   focused: boolean;
   onChanged: () => void;
   onStreamSend: StreamSend;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, mode: 'merge' | 'discard') => void;
   onFocus: (id: string, parentId?: string | null) => void;
 }) {
   const qRef = useRef<HTMLDivElement>(null);
+  const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     // 聚焦时跳转到「提问位置」（提问与回答的交界处），而非整张卡片
     if (focused && qRef.current) {
@@ -77,10 +78,37 @@ export default function ConversationCard({
         ) : null}
         <div className="msg-actions">
           <CopyButton text={node.user_message} />
-          {node.is_volatile && node.status === 'completed' ? (
-            <button className="del-btn" title="删除探索节点" onClick={() => onDelete(node.id)}>
+          {node.status === 'completed' && !confirming ? (
+            <button className="del-btn" title="删除该节点" onClick={() => setConfirming(true)}>
               ✕
             </button>
+          ) : null}
+          {confirming ? (
+            <span className="del-confirm">
+              <button
+                className="del-opt"
+                title="删除本节点及其所有子节点（分支）"
+                onClick={() => {
+                  setConfirming(false);
+                  onDelete(node.id, 'discard');
+                }}
+              >
+                删除分支
+              </button>
+              <button
+                className="del-opt"
+                title="仅删除本节点，其子节点上移到上一层"
+                onClick={() => {
+                  setConfirming(false);
+                  onDelete(node.id, 'merge');
+                }}
+              >
+                仅删本节点
+              </button>
+              <button className="del-opt cancel" onClick={() => setConfirming(false)}>
+                取消
+              </button>
+            </span>
           ) : null}
         </div>
       </div>
