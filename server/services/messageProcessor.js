@@ -10,9 +10,10 @@ import { resolvePairedConfig } from './moduleService.js';
 // onStart: 节点建好后回调 {id}（流式场景用于前端占位）
 // onToken: 每个 token 块回调（流式场景）
 // 返回最终完整节点对象。
-export async function processMessage({ treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources, onStart, onToken }) {
+export async function processMessage({ treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources, onStart, onToken, userId }) {
   const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(treeId);
   if (!tree) throw new Error('tree not found');
+  if (tree.user_id !== userId) throw new Error('无权访问该对话树');
   if (!userMessage) throw new Error('userMessage required');
 
   let depth = 0;
@@ -27,7 +28,7 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
 
   const id = randomUUID();
   const now = Date.now();
-  const usedModel = model || process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const usedModel = model || 'gpt-4o-mini';
   const treeNodes = db.prepare('SELECT * FROM context_elements WHERE tree_id = ?').all(treeId);
 
   // 直接上下文 = 父节点的直接路径（context_trace.direct，已递归含更上层路径节点）+ 父节点自身。
@@ -55,11 +56,11 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   db.prepare(
     `INSERT INTO context_elements
       (id, tree_id, parent_id, sibling_index, depth, user_message, ai_message,
-       model, model_config, status, resources, has_resource, is_volatile, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,NULL,?,?, 'pending', ?, ?, ?, ?, ?)`
+       model, model_config, status, resources, has_resource, is_volatile, user_id, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,NULL,?,?, 'pending', ?, ?, ?, ?, ?, ?)`
   ).run(
     id, treeId, parentId ?? null, siblingIndex, depth, userMessage, usedModel, '{}',
-    isVolatile ? 1 : 0, JSON.stringify(resources || []), (resources && resources.length) ? 1 : 0, now, now
+    isVolatile ? 1 : 0, JSON.stringify(resources || []), (resources && resources.length) ? 1 : 0, tree.user_id, now, now
   );
   if (onStart) onStart({ id, treeId, parentId, userMessage });
 
@@ -68,7 +69,7 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   const visionConfig = resolvePairedConfig('vision');
   let metas = [];
   try {
-    metas = await generateResourceMetas(resources || [], usedModel, visionConfig);
+    metas = await generateResourceMetas(resources || [], model, visionConfig, userId);
   } catch (e) {
     console.error('generateResourceMetas failed:', e.message);
   }
@@ -135,18 +136,20 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
       result = await generateAnswerStream({
         contextGroups: { direct, cross },
         userMessage,
-        model: usedModel,
+        model: model,
         resources: enriched,
         resourcePlan: plan.resourcePlan,
         onToken,
+        userId,
       });
     } else {
       result = await generateAnswer({
         contextGroups: { direct, cross },
         userMessage,
-        model: usedModel,
+        model: model,
         resources: enriched,
         resourcePlan: plan.resourcePlan,
+        userId,
       });
     }
   } catch (e) {

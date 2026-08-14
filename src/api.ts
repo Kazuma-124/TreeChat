@@ -69,14 +69,70 @@ export type ApiConfigInput = {
   paired_models?: PairedModel[];
 };
 
+// ---- 登录态（JWT）本地存储 ----
+export interface SessionUser {
+  id: string;
+  username: string;
+  is_admin: boolean;
+}
+const TOKEN_KEY = 'treechat_token';
+const USER_KEY = 'treechat_user';
+
+export function getToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+export function setSession(token: string, user: SessionUser) {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } catch {
+    /* ignore */
+  }
+}
+export function getSession(): { token: string; user: SessionUser } | null {
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const raw = localStorage.getItem(USER_KEY);
+    if (!token || !raw) return null;
+    return { token, user: JSON.parse(raw) as SessionUser };
+  } catch {
+    return null;
+  }
+}
+export function clearSession() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+export function isLoggedIn(): boolean {
+  return !!getToken();
+}
+
+// 401（未登录/登录过期）→ 清登录态并广播，由 AuthGate 弹回登录页
+export function notifyUnauthorized() {
+  clearSession();
+  window.dispatchEvent(new Event('treechat:unauthorized'));
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const r = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  });
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(init?.headers as Record<string, string> | undefined),
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const r = await fetch(path, { ...init, headers });
   if (!r.ok) {
     const body = await r.json().catch(() => ({}));
-    throw new Error(body.error || r.statusText);
+    if (r.status === 401) notifyUnauthorized();
+    throw new Error((body as { error?: string })?.error || r.statusText);
   }
   return r.json();
 }
@@ -119,10 +175,14 @@ export function sendMessageStream(opts: {
       isVolatile: opts.isVolatile,
       resources: opts.resources,
     });
-    fetch('/api/chat/stream', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+    const token = getToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    fetch('/api/chat/stream', { method: 'POST', headers, body })
       .then(async (resp) => {
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
+          if (resp.status === 401) notifyUnauthorized();
           opts.onError?.(err.error || resp.statusText);
           reject(new Error(err.error || resp.statusText));
           return;
@@ -184,6 +244,18 @@ export function downloadText(filename: string, text: string, mime = 'application
 }
 
 export const api = {
+  // 认证
+  login: (username: string, password: string) =>
+    req<{ token: string; user: SessionUser }>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  register: (username: string, password: string, inviteCode?: string) =>
+    req<{ token: string; user: SessionUser }>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, inviteCode }),
+    }),
+
   listTrees: () => req<Tree[]>('/api/trees'),
   createTree: (title?: string) =>
     req<Tree>('/api/trees', { method: 'POST', body: JSON.stringify({ title }) }),

@@ -5,17 +5,25 @@ import treesRouter from './routes/trees.js';
 import chatRouter from './routes/chat.js';
 import searchRouter from './routes/search.js';
 import configRouter from './routes/config.js';
+import authRouter from './routes/auth.js';
+import { authRequired } from './middleware/auth.js';
 import { migratePlaintextKeys } from './services/apiConfig.js';
 
 const app = express();
-app.use(cors());
+
+// 仅允许受信前端源访问 API。生产（Nginx 同域反代）可不设；开发期 Vite 默认 5173。
+const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+app.use(cors({ origin: allowedOrigin, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
-app.use('/api/trees', treesRouter);
-app.use('/api/chat', chatRouter);
-app.use('/api/search', searchRouter);
-app.use('/api/configs', configRouter);
+app.use('/api/auth', authRouter);
+
+// 受保护路由：先过 authRequired 注入 req.userId，再进业务路由（业务层已做数据归属校验）
+app.use('/api/trees', authRequired, treesRouter);
+app.use('/api/chat', authRequired, chatRouter);
+app.use('/api/search', authRequired, searchRouter);
+app.use('/api/configs', authRequired, configRouter);
 
 // 404 兜底：所有未匹配的 API 路由统一返回 JSON 错误，避免前端收到 HTML
 app.use((req, res) => {

@@ -11,14 +11,19 @@ const SYSTEM_PROMPT = fs.readFileSync(
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// 读取当前启用的 API 方案；无 DB 配置时回退环境变量。model 可被单次请求覆盖。
-function resolveConfig(model) {
-  const cfg = getActiveConfig();
+// 读取当前启用的 API 方案（完全来自用户在 UI 中配置并启用的方案）。
+// 无任何方案且未开 MOCK_LLM 时抛错，引导用户去「⚙ API」配置；MOCK_LLM=1 可作离线调试开关。
+function resolveConfig(model, userId) {
+  const cfg = getActiveConfig(userId);
+  const mock = (cfg && cfg.is_mock === 1) || process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true';
+  if (!cfg && !mock) {
+    throw new Error('尚未配置 API 方案：请在「⚙ API」中添加并启用一个方案，或设置 MOCK_LLM=1 进入离线模式。');
+  }
   return {
-    baseUrl: cfg.base_url || 'https://api.openai.com/v1',
-    apiKey: cfg.api_key || '',
-    model: model || cfg.model || 'gpt-4o-mini',
-    mock: cfg.is_mock === 1 || process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true',
+    baseUrl: cfg ? cfg.base_url : 'https://api.openai.com/v1',
+    apiKey: cfg ? cfg.api_key : '',
+    model: model || (cfg ? cfg.model : 'gpt-4o-mini'),
+    mock,
   };
 }
 
@@ -119,8 +124,8 @@ function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMP
 }
 
 // 非流式：返回 { answer, summary, tags }
-export async function generateAnswer({ contextGroups, userMessage, model, systemPrompt, resources, resourcePlan }) {
-  const cfg = resolveConfig(model);
+export async function generateAnswer({ contextGroups, userMessage, model, systemPrompt, resources, resourcePlan, userId }) {
+  const cfg = resolveConfig(model, userId);
   if (cfg.mock) return mockResult({ ...contextGroups, userMessage, model: cfg.model, resources, resourcePlan });
   const messages = buildMessages({ contextGroups, userMessage, systemPrompt, resources, resourcePlan });
   const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
@@ -137,8 +142,8 @@ export async function generateAnswer({ contextGroups, userMessage, model, system
 }
 
 // 流式：每个 token 块通过 onToken 回调吐出（仅正文），最终返回 { answer, summary, tags }。
-export async function generateAnswerStream({ contextGroups, userMessage, model, systemPrompt, resources, resourcePlan, onToken }) {
-  const cfg = resolveConfig(model);
+export async function generateAnswerStream({ contextGroups, userMessage, model, systemPrompt, resources, resourcePlan, onToken, userId }) {
+  const cfg = resolveConfig(model, userId);
   if (cfg.mock) {
     const full = mockAnswer({ ...contextGroups, userMessage, model: cfg.model, resources, resourcePlan });
     for (let i = 0; i < full.length; i += 12) {
@@ -234,7 +239,7 @@ function mockAnswer({ direct, cross, userMessage, model, resources, resourcePlan
     (rCount ? `\n【附带资源 ${rCount} 份（图片/文本/代码），此处仅占位，真实调用按编排计划纳入】${planText}\n` : '') +
     (dCount ? `\n【直接上下文·祖先路径 ${dCount} 条】\n${dLines}\n` : '\n（无祖先上下文，这是根问题）\n') +
     (cCount ? `\n【跨分支召回 ${cCount} 条】\n${cLines}\n` : '\n（无跨分支召回）\n') +
-    '\n这是离线假回答，用于验证流程。配置真实 OPENAI_BASE_URL + OPENAI_API_KEY 后即为真实回答。'
+    '\n这是离线假回答，用于验证流程。在「⚙ API」中配置并启用方案后即为真实回答。'
   );
 }
 
@@ -300,11 +305,11 @@ async function runMetas(cfg, items) {
 // 为一份或多份资源生成「简介 + 标签」。
 // 图片走视觉/模块模型（若主配置声明并启用了 role=vision 的搭配模型，否则回退主模型）；
 // 文本/代码走主模型。返回与输入顺序对齐的数组，失败项返回空，不阻断主流程。
-export async function generateResourceMetas(resources, model, visionConfig) {
+export async function generateResourceMetas(resources, model, visionConfig, userId) {
   const list = resources || [];
   if (!list.length) return [];
 
-  const mainCfg = resolveConfig(model);
+  const mainCfg = resolveConfig(model, userId);
   const visCfg = visionConfig || mainCfg;
 
   const images = list.filter((r) => r.kind === 'image');

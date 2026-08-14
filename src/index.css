@@ -335,3 +335,41 @@ body {
 .card-resource-thumb { height: 28px; width: 28px; object-fit: cover; border-radius: 4px; }
 .card-resource-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
 .card-resource-desc { font-style: normal; color: #2a7f3a; }
+
+/* 侧边栏用户行 */
+.sidebar-user {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px; border-bottom: 1px solid #333; font-size: 13px; color: #b9bdc4;
+}
+.sidebar-user .user-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-user .user-logout {
+  background: transparent; color: #9aa0a6; border: 1px solid #444; border-radius: 6px;
+  padding: 2px 8px; cursor: pointer; font-size: 12px;
+}
+.sidebar-user .user-logout:hover { color: #fff; border-color: #666; }
+
+/* 登录 / 注册 */
+.auth-wrap { height: 100%; display: flex; align-items: center; justify-content: center; background: #f5f6f8; }
+.auth-card {
+  width: 340px; background: #fff; border-radius: 14px; padding: 28px 26px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.08); display: flex; flex-direction: column; gap: 14px;
+}
+.auth-card h1 { margin: 0 0 4px; font-size: 24px; text-align: center; }
+.auth-tabs { display: flex; gap: 8px; }
+.auth-tabs button {
+  flex: 1; padding: 8px 0; border: 1px solid #d6dae0; background: #fff; color: #555;
+  border-radius: 8px; cursor: pointer; font-size: 14px;
+}
+.auth-tabs button.active { background: #3a6df0; color: #fff; border-color: #3a6df0; }
+.auth-card label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #555; }
+.auth-card input {
+  padding: 10px 12px; border: 1px solid #d6dae0; border-radius: 8px; font-size: 14px; outline: none;
+}
+.auth-card input:focus { border-color: #3a6df0; }
+.auth-error { color: #c0392b; font-size: 13px; background: #fdecea; padding: 8px 10px; border-radius: 8px; }
+.auth-submit {
+  padding: 11px 0; border: none; background: #3a6df0; color: #fff; border-radius: 8px;
+  font-size: 15px; cursor: pointer;
+}
+.auth-submit:disabled { opacity: .6; cursor: default; }
+.auth-hint { margin: 0; text-align: center; font-size: 12px; color: #999; }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Tree, api, downloadText, SearchHit } from '../api';
+import { Tree, api, downloadText, SearchHit, getSession, notifyUnauthorized } from '../api';
 
 export default function TreeSidebar({
   trees,
@@ -48,6 +48,7 @@ export default function TreeSidebar({
 
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<SearchHit[]>([]);
+  const me = getSession()?.user ?? null;
   useEffect(() => {
     const term = q.trim();
     if (!term) {
@@ -64,6 +65,10 @@ export default function TreeSidebar({
     return () => clearTimeout(timer);
   }, [q]);
 
+  const logout = () => {
+    if (window.confirm('确定退出登录？')) notifyUnauthorized();
+  };
+
   return (
     <aside className="sidebar">
       <div className="sidebar-head">
@@ -72,6 +77,11 @@ export default function TreeSidebar({
           <button onClick={importFile} title="导入 JSON">📥</button>
           <button onClick={onCreate} title="新建对话树">+</button>
         </div>
+      </div>
+
+      <div className="sidebar-user">
+        <span className="user-name" title={me?.username}>{me?.username ?? '未登录'}{me?.is_admin ? '（管理员）' : ''}</span>
+        <button className="user-logout" onClick={logout} title="退出登录">退出</button>
       </div>
 
       <div className="search-box">

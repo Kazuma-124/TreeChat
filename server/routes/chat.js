@@ -8,7 +8,7 @@ const router = Router();
 router.post('/send', async (req, res) => {
   try {
     const { treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources } = req.body;
-    const node = await processMessage({ treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources });
+    const node = await processMessage({ treeId, parentId, userMessage, model, isVolatile, contextElementIds, resources, userId: req.userId });
     res.json(node);
   } catch (e) {
     console.error(e);
@@ -36,6 +36,7 @@ router.post('/stream', async (req, res) => {
       isVolatile,
       contextElementIds,
       resources,
+      userId: req.userId,
       onStart: (info) => send('start', info),
       onToken: (delta) => send('token', { delta }),
     });
@@ -60,7 +61,7 @@ router.patch('/:id', (req, res) => {
     const { id } = req.params;
     const tags = req.body?.tags;
     if (!Array.isArray(tags)) return res.status(400).json({ error: 'tags must be an array' });
-    const node = db.prepare('SELECT * FROM context_elements WHERE id = ?').get(id);
+    const node = db.prepare('SELECT * FROM context_elements WHERE id = ? AND user_id = ?').get(id, req.userId);
     if (!node) return res.status(404).json({ error: 'node not found' });
     db.prepare('UPDATE context_elements SET tags = ?, updated_at = ? WHERE id = ?').run(
       JSON.stringify(tags),
@@ -79,11 +80,11 @@ router.delete('/:id', (req, res) => {
   try {
     const { id } = req.params;
     const mode = req.query.mode === 'merge' ? 'merge' : 'discard';
-    const node = db.prepare('SELECT * FROM context_elements WHERE id = ?').get(id);
+    const node = db.prepare('SELECT * FROM context_elements WHERE id = ? AND user_id = ?').get(id, req.userId);
     if (!node) return res.status(404).json({ error: 'node not found' });
 
     const children = db.prepare('SELECT * FROM context_elements WHERE parent_id = ?').all(id);
-    const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(node.tree_id);
+    const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ? AND user_id = ?').get(node.tree_id, req.userId);
     const isRoot = !!tree && tree.root_node_id === id;
 
     const del = db.transaction(() => {

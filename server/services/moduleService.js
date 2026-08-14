@@ -17,8 +17,9 @@ function asArray(v) {
 // 视觉/模块模型 = 主模型配置的一部分：主配置声明「搭配哪些模块模型、干什么、是否启用」。
 // 这里按 role 从当前启用主配置的 paired_models 中解析出实际可用的模块模型配置。
 // 返回 { baseUrl, apiKey, model, mock } 或 null（未配置 / 未启用 / 找不到）。
-export function resolvePairedConfig(role) {
-  const cfg = getActiveConfig();
+export function resolvePairedConfig(role, userId) {
+  const cfg = getActiveConfig(userId);
+  if (!cfg) return null;
   const paired = asArray(cfg.paired_models);
   const entry = paired.find((p) => p && p.role === role && p.enabled);
   if (!entry || !entry.config_id) return null;

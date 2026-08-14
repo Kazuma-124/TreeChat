@@ -5,10 +5,10 @@ import db from '../db.js';
 const router = Router();
 
 // 列出所有对话树
-router.get('/', (_req, res) => {
+router.get('/', (req, res) => {
   const trees = db
-    .prepare('SELECT * FROM conversation_trees ORDER BY updated_at DESC')
-    .all();
+    .prepare('SELECT * FROM conversation_trees WHERE user_id = ? ORDER BY updated_at DESC')
+    .all(req.userId);
   res.json(trees);
 });
 
@@ -18,15 +18,15 @@ router.post('/', (req, res) => {
   const now = Date.now();
   const title = req.body?.title || '新对话树';
   db.prepare(
-    'INSERT INTO conversation_trees (id, title, root_node_id, created_at, updated_at) VALUES (?,?,NULL,?,?)'
-  ).run(id, title, now, now);
+    'INSERT INTO conversation_trees (id, title, root_node_id, user_id, created_at, updated_at) VALUES (?,?,NULL,?,?,?)'
+  ).run(id, title, req.userId, now, now);
   const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(id);
   res.status(201).json(tree);
 });
 
 // 获取单棵树 + 其全部节点（前端据此构建树结构）
 router.get('/:id', (req, res) => {
-  const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(req.params.id);
+  const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
   if (!tree) return res.status(404).json({ error: 'tree not found' });
   const nodes = db
     .prepare('SELECT * FROM context_elements WHERE tree_id = ? ORDER BY created_at ASC')
@@ -40,7 +40,7 @@ router.get('/:id', (req, res) => {
 // 删除整棵对话树：事务内级联删除其全部节点（含 tags/summary/embedding/context_trace 等元数据列）与该树记录
 router.delete('/:id', (req, res) => {
   try {
-    const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(req.params.id);
+    const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
     if (!tree) return res.status(404).json({ error: 'tree not found' });
     const delNodes = db.prepare('DELETE FROM context_elements WHERE tree_id = ?');
     const delTree = db.prepare('DELETE FROM conversation_trees WHERE id = ?');
@@ -59,7 +59,7 @@ router.delete('/:id', (req, res) => {
 // 重命名对话树
 router.patch('/:id', (req, res) => {
   try {
-    const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(req.params.id);
+    const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
     if (!tree) return res.status(404).json({ error: 'tree not found' });
     const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
     if (!title) return res.status(400).json({ error: 'title required' });
@@ -78,7 +78,7 @@ router.patch('/:id', (req, res) => {
 
 // 导出：?format=json（默认）| md
 router.get('/:id/export', (req, res) => {
-  const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ?').get(req.params.id);
+  const tree = db.prepare('SELECT * FROM conversation_trees WHERE id = ? AND user_id = ?').get(req.params.id, req.userId);
   if (!tree) return res.status(404).json({ error: 'tree not found' });
   const nodes = db
     .prepare('SELECT * FROM context_elements WHERE tree_id = ? ORDER BY created_at ASC')
@@ -119,14 +119,14 @@ router.post('/import', (req, res) => {
   for (const n of nodes) idMap[n.id] = randomUUID();
 
   db.prepare(
-    'INSERT INTO conversation_trees (id, title, root_node_id, created_at, updated_at) VALUES (?,?,?,?,?)'
-  ).run(newTreeId, title, idMap[nodes[0].id] || null, now, now);
+    'INSERT INTO conversation_trees (id, title, root_node_id, user_id, created_at, updated_at) VALUES (?,?,?,?,?,?)'
+  ).run(newTreeId, title, idMap[nodes[0].id] || null, req.userId, now, now);
 
   const insert = db.prepare(
     `INSERT INTO context_elements
       (id, tree_id, parent_id, sibling_index, depth, user_message, ai_message, model,
-       model_config, status, summary, tags, token_count, context_element_ids, embedding, is_volatile, resources, has_resource, created_at, updated_at)
-     VALUES (@id,@tree_id,@parent_id,@sibling_index,@depth,@user_message,@ai_message,@model,@model_config,'completed',@summary,@tags,@token_count,@context_element_ids,@embedding,@is_volatile,@resources,@has_resource,@created_at,@updated_at)`
+       model_config, status, summary, tags, token_count, context_element_ids, embedding, is_volatile, resources, has_resource, user_id, created_at, updated_at)
+     VALUES (@id,@tree_id,@parent_id,@sibling_index,@depth,@user_message,@ai_message,@model,@model_config,'completed',@summary,@tags,@token_count,@context_element_ids,@embedding,@is_volatile,@resources,@has_resource,@user_id,@created_at,@updated_at)`
   );
   const importNow = Date.now();
   for (const n of nodes) {
@@ -148,6 +148,7 @@ router.post('/import', (req, res) => {
       is_volatile: n.is_volatile ? 1 : 0,
       resources: n.resources ?? null,
       has_resource: n.has_resource ? 1 : 0,
+      user_id: req.userId,
       created_at: importNow,
       updated_at: importNow,
     });

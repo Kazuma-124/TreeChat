@@ -35,19 +35,20 @@ router.get('/', (req, res) => {
   const like = `%${q}%`;
   const needle = q.toLowerCase();
 
-  // 1) 文本列匹配（SQL LIKE，沿用原逻辑）
+  // 1) 文本列匹配（SQL LIKE，沿用原逻辑）；仅检索当前用户数据
   const textRows = db
     .prepare(
       `SELECT ${SELECT_COLS}
        FROM context_elements ce
        JOIN conversation_trees t ON t.id = ce.tree_id
-       WHERE ce.user_message LIKE ?
+       WHERE ce.user_id = ?
+         AND (ce.user_message LIKE ?
           OR ce.ai_message LIKE ?
           OR ce.summary LIKE ?
-          OR ce.tags LIKE ?
+          OR ce.tags LIKE ?)
        ORDER BY ce.updated_at DESC`
     )
-    .all(like, like, like, like);
+    .all(req.userId, like, like, like, like);
 
   // 2) 资源描述匹配：先用 LIKE 收窄候选（含 base64 噪声），再在 JS 层仅比对描述/文件名/标签
   const resCandidates = db
@@ -55,10 +56,10 @@ router.get('/', (req, res) => {
       `SELECT ${SELECT_COLS}
        FROM context_elements ce
        JOIN conversation_trees t ON t.id = ce.tree_id
-       WHERE ce.resources LIKE ?
+       WHERE ce.user_id = ? AND ce.resources LIKE ?
        ORDER BY ce.updated_at DESC`
     )
-    .all(like);
+    .all(req.userId, like);
 
   const seen = new Set();
   const out = [];

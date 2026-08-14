@@ -2,22 +2,9 @@ import db from '../db.js';
 import { randomUUID } from 'crypto';
 import { encrypt, decrypt, isEncrypted } from './crypto.js';
 
-// API 方案配置：用户可在 UI 中保存多套（base_url / api_key / model / mock）。
-// 无 DB 配置时回退到环境变量，保证旧部署与 MOCK 模式仍可工作。
-
-function envFallback() {
-  return {
-    id: 'env',
-    name: '环境变量（默认）',
-    base_url: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-    api_key: process.env.OPENAI_API_KEY || '',
-    model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-    is_mock: process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true' ? 1 : 0,
-    is_active: 0,
-    created_at: 0,
-    updated_at: 0,
-  };
-}
+// API 方案配置：完全由用户在 UI 中保存并启用（base_url / api_key / model / mock）。
+// 所有方案按 user_id 隔离——不同用户互不可见、互不串用对方的 key / 配额。
+// 不再依赖任何静态环境变量；未配置且未开 MOCK 时由调用方提示用户去 UI 配置。
 
 function maskKey(k) {
   if (!k) return '';
@@ -33,17 +20,17 @@ function parseJSON(s, fallback) {
   }
 }
 
-export function listConfigs() {
+export function listConfigs(userId) {
   const rows = db
     .prepare(
-      'SELECT id, name, base_url, api_key, model, is_mock, is_active, paired_models, created_at, updated_at FROM api_configs ORDER BY is_active DESC, updated_at DESC'
+      'SELECT id, name, base_url, api_key, model, is_mock, is_active, paired_models, created_at, updated_at FROM api_configs WHERE user_id = ? ORDER BY is_active DESC, updated_at DESC'
     )
-    .all();
+    .all(userId);
   return rows.map((r) => ({ ...r, api_key: maskKey(decrypt(r.api_key)), paired_models: parseJSON(r.paired_models, []) }));
 }
 
-export function getConfig(id) {
-  const row = db.prepare('SELECT * FROM api_configs WHERE id = ?').get(id) || null;
+export function getConfig(userId, id) {
+  const row = db.prepare('SELECT * FROM api_configs WHERE id = ? AND user_id = ?').get(id, userId) || null;
   if (row) {
     const dk = decrypt(row.api_key);
     // 解密失败（主密钥已变更）：返回空串，强制用户在编辑表单重新填入，避免把密文二次加密。
@@ -53,8 +40,8 @@ export function getConfig(id) {
   return row;
 }
 
-export function getActiveConfig() {
-  const row = db.prepare('SELECT * FROM api_configs WHERE is_active = 1 LIMIT 1').get();
+export function getActiveConfig(userId) {
+  const row = db.prepare('SELECT * FROM api_configs WHERE user_id = ? AND is_active = 1 LIMIT 1').get(userId);
   if (row) {
     const dk = decrypt(row.api_key);
     if (isEncrypted(dk)) {
@@ -65,23 +52,24 @@ export function getActiveConfig() {
     }
     row.api_key = dk;
   }
-  return row || envFallback();
+  // 未配置任何方案时返回 null，由 chatGenerator 等调用方决定走 MOCK 还是提示用户配置。
+  return row || null;
 }
 
-export function createConfig({ name, base_url, api_key, model, is_mock, paired_models }) {
+export function createConfig(userId, { name, base_url, api_key, model, is_mock, paired_models }) {
   const id = randomUUID();
   const now = Date.now();
-  const exists = db.prepare('SELECT COUNT(*) AS c FROM api_configs').get().c;
+  const exists = db.prepare('SELECT COUNT(*) AS c FROM api_configs WHERE user_id = ?').get(userId).c;
   const is_active = exists === 0 ? 1 : 0; // 首个配置自动启用
   db.prepare(
-    `INSERT INTO api_configs (id, name, base_url, api_key, model, is_mock, is_active, paired_models, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`
-  ).run(id, name, base_url, encrypt(api_key), model, is_mock ? 1 : 0, is_active, JSON.stringify(paired_models || []), now, now);
-  return getConfig(id);
+    `INSERT INTO api_configs (id, name, base_url, api_key, model, is_mock, is_active, paired_models, user_id, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+  ).run(id, name, base_url, encrypt(api_key), model, is_mock ? 1 : 0, is_active, JSON.stringify(paired_models || []), userId, now, now);
+  return getConfig(userId, id);
 }
 
-export function updateConfig(id, fields) {
-  const cur = getConfig(id);
+export function updateConfig(userId, id, fields) {
+  const cur = getConfig(userId, id);
   if (!cur) return null;
   const name = fields.name ?? cur.name;
   const base_url = fields.base_url ?? cur.base_url;
@@ -91,9 +79,9 @@ export function updateConfig(id, fields) {
   const is_mock = fields.is_mock !== undefined ? (fields.is_mock ? 1 : 0) : cur.is_mock;
   const paired_models = fields.paired_models != null ? JSON.stringify(fields.paired_models) : cur.paired_models;
   db.prepare(
-    'UPDATE api_configs SET name=?, base_url=?, api_key=?, model=?, is_mock=?, paired_models=?, updated_at=? WHERE id=?'
-  ).run(name, base_url, api_key, model, is_mock, paired_models, Date.now(), id);
-  return getConfig(id);
+    'UPDATE api_configs SET name=?, base_url=?, api_key=?, model=?, is_mock=?, paired_models=?, updated_at=? WHERE id=? AND user_id=?'
+  ).run(name, base_url, api_key, model, is_mock, paired_models, Date.now(), id, userId);
+  return getConfig(userId, id);
 }
 
 // 启动迁移：将历史明文 api_key 重新加密（已加密的跳过）。
@@ -109,16 +97,16 @@ export function migratePlaintextKeys() {
   tx();
 }
 
-export function deleteConfig(id) {
-  db.prepare('DELETE FROM api_configs WHERE id = ?').run(id);
-  const still = db.prepare('SELECT COUNT(*) AS c FROM api_configs WHERE is_active = 1').get().c;
+export function deleteConfig(userId, id) {
+  db.prepare('DELETE FROM api_configs WHERE id = ? AND user_id = ?').run(id, userId);
+  const still = db.prepare('SELECT COUNT(*) AS c FROM api_configs WHERE user_id = ? AND is_active = 1').get(userId).c;
   if (still === 0) {
-    const next = db.prepare('SELECT id FROM api_configs ORDER BY updated_at DESC LIMIT 1').get();
-    if (next) setActive(next.id);
+    const next = db.prepare('SELECT id FROM api_configs WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1').get(userId);
+    if (next) setActive(userId, next.id);
   }
 }
 
-export function setActive(id) {
-  db.prepare('UPDATE api_configs SET is_active = 0').run();
-  db.prepare('UPDATE api_configs SET is_active = 1, updated_at = ? WHERE id = ?').run(Date.now(), id);
+export function setActive(userId, id) {
+  db.prepare('UPDATE api_configs SET is_active = 0 WHERE user_id = ?').run(userId);
+  db.prepare('UPDATE api_configs SET is_active = 1, updated_at = ? WHERE id = ? AND user_id = ?').run(Date.now(), id, userId);
 }

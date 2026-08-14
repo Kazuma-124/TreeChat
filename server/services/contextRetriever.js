@@ -59,9 +59,12 @@ function resMetaToText(m) {
 //   - resources：当前轮已附带的资源（含模型生成的 description）
 // 输出结构化计划：
 //   { context_intent, selectedIds, nodePlan, resourcePlan, reasoning }
-export async function retrieveContext({ userMessage, ancestorMeta = [], metadataIndex = [], resources = [] }) {
-  const cfg = getActiveConfig();
-  const mock = cfg.is_mock === 1 || process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true';
+export async function retrieveContext({ userMessage, ancestorMeta = [], metadataIndex = [], resources = [], userId }) {
+  const cfg = getActiveConfig(userId);
+  const mock = (cfg && cfg.is_mock === 1) || process.env.MOCK_LLM === '1' || process.env.MOCK_LLM === 'true';
+  if (!cfg && !mock) {
+    throw new Error('尚未配置 API 方案：请在「⚙ API」中添加并启用一个方案，或设置 MOCK_LLM=1 进入离线模式。');
+  }
   if (mock) {
     return defaultPlan(resources, ancestorMeta);
   }
