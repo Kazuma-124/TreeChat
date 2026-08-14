@@ -142,6 +142,10 @@ body {
 .ctx-add { font-size: 12px; padding: 4px 6px; border: 1px solid #c3d0ff; border-radius: 6px; background: #fff; font-family: inherit; }
 .ctx-regenerate { align-self: flex-start; border: none; background: #3a6df0; color: #fff; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
 .ctx-regenerate:disabled { opacity: 0.6; cursor: default; }
+.ctx-intent { font-size: 13px; color: #445; }
+.ctx-intent b { color: #3a6df0; }
+.ctx-tier { margin-left: 8px; font-size: 11px; background: #e7e0ff; color: #5a32c4; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.ctx-res { font-weight: 500; color: #445; }
 
 /* 标签编辑（Phase 4） */
 .tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
@@ -289,11 +293,18 @@ body {
 .cfg-form-actions .primary { background: #3a6df0; color: #fff; }
 .cfg-form-actions .primary:hover { background: #2f5bd0; }
 .cfg-form-actions .ghost { background: #eef1f6; color: #333; }
+.cfg-paired { border: 1px solid #d6dae0; border-radius: 8px; padding: 10px 12px; background: #fafbfc; }
+.cfg-paired-h { font-size: 13px; font-weight: 600; color: #445; margin-bottom: 8px; }
+.cfg-paired-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 6px 0; }
+.cfg-paired-enable { flex-direction: row !important; align-items: center !important; gap: 6px !important; font-size: 13px !important; color: #333 !important; }
+.cfg-paired-enable input { width: auto; }
+.cfg-paired-row select { font-size: 13px; padding: 4px 8px; border: 1px solid #d6dae0; border-radius: 6px; background: #fff; font-family: inherit; }
 .api-config-btn { border: 1px solid #cdd5e0; background: #fff; border-radius: 8px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
 .api-config-btn:hover { border-color: #3a6df0; background: #eef3ff; }
 /* 标签徽标（复用） */
 .tag.active { background: #e6f6ec; color: #1a7f37; border: 1px solid #b7e3c4; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
 .tag.mock { background: #fff3cd; color: #8a6d00; border: 1px solid #f0e0a0; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+.tag.paired { background: #e7e0ff; color: #5a32c4; border: 1px solid #cdbcf5; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
 
 /* 资源栏（输入框右上角 chip） */
 .resource-tray { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 6px; }

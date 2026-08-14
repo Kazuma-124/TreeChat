@@ -4,6 +4,7 @@ import { getAncestorChain } from './treeTraversal.js';
 import { retrieveContext } from './contextRetriever.js';
 import { buildContext } from './contextBuilder.js';
 import { generateAnswer, generateAnswerStream, generateResourceMetas } from './chatGenerator.js';
+import { resolvePairedConfig } from './moduleService.js';
 
 // 发送消息的统一核心：建节点(pending) → 检索 → 组装 → 生成(可流式) → 元数据 → 落库。
 // onStart: 节点建好后回调 {id}（流式场景用于前端占位）
@@ -63,10 +64,11 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   if (onStart) onStart({ id, treeId, parentId, userMessage });
 
   // 先为当前轮资源生成「简介 + 标签」：供阶段一编排决策参考，并在落库时复用。
-  // （Phase 4 会迁移到模块模型；此处先用主模型）
+  // 图片优先走视觉/模块模型（主配置声明并启用的 role=vision），文本/代码走主模型。
+  const visionConfig = resolvePairedConfig('vision');
   let metas = [];
   try {
-    metas = await generateResourceMetas(resources || [], usedModel);
+    metas = await generateResourceMetas(resources || [], usedModel, visionConfig);
   } catch (e) {
     console.error('generateResourceMetas failed:', e.message);
   }

@@ -248,24 +248,17 @@ function mockResult({ userMessage, resources, resourcePlan }) {
   return { answer: full, summary, tags };
 }
 
-// 为一份或多份资源生成「简介 + 标签」（模型一次调用，返回与输入顺序对齐的数组）。
-// 图片以多模态 image_url 传入；文本/代码作为文本块传入。失败时返回空描述，不阻断主流程。
-export async function generateResourceMetas(resources, model) {
-  const list = resources || [];
-  if (!list.length) return [];
-  const cfg = resolveConfig(model);
-  if (cfg.mock) return list.map(() => ({ description: '［示例资源描述］', tags: ['资源'] }));
+const META_PROMPT =
+  '以下是用户附带的多份素材。请严格按 JSON 数组返回，每个元素对应一份素材：\n' +
+  '[{"description":"用中文一句话简述这份素材的内容","tags":["最多3个中文关键词"]}]\n' +
+  '数组长度需与素材数量一致，不要输出多余内容。';
 
-  const parts = [
-    {
-      type: 'text',
-      text:
-        '以下是用户附带的多份素材。请严格按 JSON 数组返回，每个元素对应一份素材：\n' +
-        '[{"description":"用中文一句话简述这份素材的内容","tags":["最多3个中文关键词"]}]\n' +
-        '数组长度需与素材数量一致，不要输出多余内容。',
-    },
-  ];
-  for (const r of list) {
+// 用指定配置对一批素材生成「简介 + 标签」，返回与输入顺序对齐的数组。
+async function runMetas(cfg, items) {
+  if (cfg.mock) return items.map(() => ({ description: '［示例资源描述］', tags: ['资源'] }));
+
+  const parts = [{ type: 'text', text: META_PROMPT }];
+  for (const r of items) {
     if (r.kind === 'image' && r.content) {
       parts.push({ type: 'image_url', image_url: { url: r.content } });
     } else if (r.content) {
@@ -291,7 +284,7 @@ export async function generateResourceMetas(resources, model) {
     const raw = data.choices?.[0]?.message?.content || '[]';
     const arr = JSON.parse(raw.replace(/^[\s\S]*?\[/, '[').replace(/\][\s\S]*$/, ']'));
     if (!Array.isArray(arr)) throw new Error('not array');
-    return list.map((_, i) => {
+    return items.map((_, i) => {
       const it = arr[i] || {};
       return {
         description: String(it.description || ''),
@@ -300,6 +293,34 @@ export async function generateResourceMetas(resources, model) {
     });
   } catch (e) {
     console.error('generateResourceMetas failed:', e.message);
-    return list.map(() => ({ description: '', tags: [] }));
+    return items.map(() => ({ description: '', tags: [] }));
   }
+}
+
+// 为一份或多份资源生成「简介 + 标签」。
+// 图片走视觉/模块模型（若主配置声明并启用了 role=vision 的搭配模型，否则回退主模型）；
+// 文本/代码走主模型。返回与输入顺序对齐的数组，失败项返回空，不阻断主流程。
+export async function generateResourceMetas(resources, model, visionConfig) {
+  const list = resources || [];
+  if (!list.length) return [];
+
+  const mainCfg = resolveConfig(model);
+  const visCfg = visionConfig || mainCfg;
+
+  const images = list.filter((r) => r.kind === 'image');
+  const others = list.filter((r) => r.kind !== 'image');
+
+  const [imgOut, otherOut] = await Promise.all([
+    images.length ? runMetas(visCfg, images) : Promise.resolve([]),
+    others.length ? runMetas(mainCfg, others) : Promise.resolve([]),
+  ]);
+
+  // 按原始顺序归并结果
+  const out = [];
+  let ii = 0;
+  let oi = 0;
+  for (const r of list) {
+    out.push(r.kind === 'image' ? imgOut[ii++] : otherOut[oi++]);
+  }
+  return out;
 }

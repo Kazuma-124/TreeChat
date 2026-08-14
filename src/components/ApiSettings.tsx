@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, ApiConfig, ApiConfigInput, DEFAULT_MODEL } from '../api';
+import { api, ApiConfig, ApiConfigInput, DEFAULT_MODEL, PairedModel } from '../api';
 
 // API 方案管理弹窗：列出已保存方案，可新增 / 编辑 / 删除 / 启用。
 // 列表中 api_key 已脱敏；编辑时通过 GET /:id 取回完整 key 回填。
@@ -35,7 +35,7 @@ export default function ApiSettings({ onClose }: { onClose: () => void }) {
 
   const openNew = () => {
     setEditingId(null);
-    setForm({ name: '', base_url: '', api_key: '', model: DEFAULT_MODEL, is_mock: false });
+    setForm({ name: '', base_url: '', api_key: '', model: DEFAULT_MODEL, is_mock: false, paired_models: [] });
     setFormOpen(true);
   };
 
@@ -45,13 +45,35 @@ export default function ApiSettings({ onClose }: { onClose: () => void }) {
     try {
       const c = await api.getConfig(id); // 含完整 api_key
       setEditingId(id);
-      setForm({ name: c.name, base_url: c.base_url, api_key: c.api_key, model: c.model, is_mock: c.is_mock === 1 });
+      setForm({
+        name: c.name,
+        base_url: c.base_url,
+        api_key: c.api_key,
+        model: c.model,
+        is_mock: c.is_mock === 1,
+        paired_models: Array.isArray(c.paired_models) ? c.paired_models : [],
+      });
       setFormOpen(true);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setBusy(false);
     }
+  };
+
+  // 在「搭配模型」列表中勾选/改角色 -> 写入 form.paired_models
+  const setPaired = (configId: string, patch: Partial<PairedModel>) => {
+    setForm((f) => {
+      const arr: PairedModel[] = Array.isArray(f.paired_models) ? f.paired_models : [];
+      const idx = arr.findIndex((p) => p.config_id === configId);
+      let next: PairedModel[];
+      if (idx >= 0) {
+        next = arr.map((p, i) => (i === idx ? { ...p, ...patch } : p));
+      } else {
+        next = [...arr, { config_id: configId, role: 'vision', enabled: true, ...patch }];
+      }
+      return { ...f, paired_models: next };
+    });
   };
 
   const save = async () => {
@@ -119,6 +141,9 @@ export default function ApiSettings({ onClose }: { onClose: () => void }) {
                       {c.name}
                       {c.is_active === 1 && <span className="tag active">启用中</span>}
                       {c.is_mock === 1 && <span className="tag mock">MOCK</span>}
+                      {Array.isArray(c.paired_models) && c.paired_models.length > 0 && (
+                        <span className="tag paired">搭配 {c.paired_models.length}</span>
+                      )}
                     </div>
                     <div className="cfg-meta">
                       {c.base_url} · {c.model}
@@ -187,6 +212,45 @@ export default function ApiSettings({ onClose }: { onClose: () => void }) {
               />
               模拟模式（不调用真实 API）
             </label>
+            <div className="cfg-paired">
+              <div className="cfg-paired-h">搭配模型（视觉/模块，可选）</div>
+              {(() => {
+                const candidates = list.filter((c) => c.id !== editingId);
+                if (!candidates.length) {
+                  return (
+                    <div className="hint">
+                      暂无其它方案可作为搭配模型。请先「新增方案」创建一个视觉模型方案，再回来勾选启用。
+                    </div>
+                  );
+                }
+                const arr: PairedModel[] = Array.isArray(form.paired_models) ? form.paired_models : [];
+                return candidates.map((c) => {
+                  const entry = arr.find((p) => p.config_id === c.id);
+                  const enabled = !!entry?.enabled;
+                  const role = entry?.role || 'vision';
+                  return (
+                    <div className="cfg-paired-row" key={c.id}>
+                      <label className="cfg-paired-enable">
+                        <input
+                          type="checkbox"
+                          checked={enabled}
+                          onChange={(e) => setPaired(c.id, { enabled: e.target.checked })}
+                        />
+                        {c.name}
+                      </label>
+                      <select
+                        value={role}
+                        disabled={!enabled}
+                        onChange={(e) => setPaired(c.id, { role: e.target.value })}
+                      >
+                        <option value="vision">视觉</option>
+                        <option value="ocr">OCR</option>
+                      </select>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
             <div className="cfg-form-actions">
               <button className="primary" onClick={save} disabled={busy}>
                 {busy ? '保存中…' : '保存'}
