@@ -48,13 +48,54 @@ function kindLabel(kind) {
   return kind === 'image' ? '图片' : kind === 'code' ? '代码' : kind === 'file' ? '文件' : '文本';
 }
 
-function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMPT, resources }) {
+// 节点资源的纳入：按 resourceMode（none/desc/raw）渲染该节点附带资源的内容块。
+function nodeResourceMessages(node) {
+  const out = [];
+  if (node.resourceMode === 'none' || !node.resources?.length) return out;
+  for (const r of node.resources) {
+    if (node.resourceMode === 'raw') {
+      if (r.kind === 'image' && r.content) {
+        out.push({ role: 'user', content: [{ type: 'image_url', image_url: { url: r.content } }] });
+      } else if (r.content) {
+        out.push({ role: 'user', content: `【节点 ${node.id} 附带的${kindLabel(r.kind)}】\n${r.content}` });
+      }
+    } else if (node.resourceMode === 'desc') {
+      const d = r.description || (r.kind === 'image' ? '（图片，无描述）' : '');
+      if (d) out.push({ role: 'user', content: `【节点 ${node.id} 附带的${kindLabel(r.kind)}（描述）】\n${d}` });
+    }
+  }
+  return out;
+}
+
+// 当前轮资源的纳入：按 resourcePlan[resId]（omit/desc/raw）渲染；缺失时按种类给默认
+// （图片 omit 省 token，文本/代码 raw——原文即用户主要输入）。
+function currentResourceParts(resources, resourcePlan) {
+  const parts = [];
+  for (const r of resources || []) {
+    const mode = resourcePlan?.[r.id] || (r.kind === 'image' ? 'omit' : 'raw');
+    if (mode === 'omit') continue;
+    if (mode === 'raw') {
+      if (r.kind === 'image' && r.content) {
+        parts.push({ type: 'image_url', image_url: { url: r.content } });
+      } else if (r.content) {
+        parts.push({ type: 'text', text: `【用户附带的${kindLabel(r.kind)}】\n${r.content}` });
+      }
+    } else if (mode === 'desc') {
+      const d = r.description || (r.kind === 'image' ? '（图片，无描述）' : '');
+      if (d) parts.push({ type: 'text', text: `【用户附带的${kindLabel(r.kind)}（描述）】\n${d}` });
+    }
+  }
+  return parts;
+}
+
+function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMPT, resources, resourcePlan }) {
   const direct = contextGroups.direct || [];
   const cross = contextGroups.cross || [];
   const messages = [{ role: 'system', content: systemPrompt }];
   for (const ce of direct) {
     messages.push({ role: 'user', content: ce.userMessage });
     if (ce.aiMessage) messages.push({ role: 'assistant', content: ce.aiMessage });
+    messages.push(...nodeResourceMessages(ce));
   }
   if (cross.length) {
     messages.push({
@@ -64,19 +105,13 @@ function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMP
     for (const ce of cross) {
       messages.push({ role: 'user', content: ce.userMessage });
       if (ce.aiMessage) messages.push({ role: 'assistant', content: ce.aiMessage });
+      messages.push(...nodeResourceMessages(ce));
     }
   }
   // 当前轮资源：图片走多模态 image_url，文本/代码作为附加文本块；无资源时仍是纯文本
-  if (resources && resources.length) {
-    const parts = [{ type: 'text', text: userMessage }];
-    for (const r of resources) {
-      if (r.kind === 'image' && r.content) {
-        parts.push({ type: 'image_url', image_url: { url: r.content } });
-      } else if (r.content) {
-        parts.push({ type: 'text', text: `【用户附带的${kindLabel(r.kind)}】\n${r.content}` });
-      }
-    }
-    messages.push({ role: 'user', content: parts });
+  const resParts = currentResourceParts(resources, resourcePlan);
+  if (resParts.length) {
+    messages.push({ role: 'user', content: [{ type: 'text', text: userMessage }, ...resParts] });
   } else {
     messages.push({ role: 'user', content: userMessage });
   }
@@ -84,10 +119,10 @@ function buildMessages({ contextGroups, userMessage, systemPrompt = SYSTEM_PROMP
 }
 
 // 非流式：返回 { answer, summary, tags }
-export async function generateAnswer({ contextGroups, userMessage, model, systemPrompt, resources }) {
+export async function generateAnswer({ contextGroups, userMessage, model, systemPrompt, resources, resourcePlan }) {
   const cfg = resolveConfig(model);
-  if (cfg.mock) return mockResult({ ...contextGroups, userMessage, model: cfg.model, resources });
-  const messages = buildMessages({ contextGroups, userMessage, systemPrompt, resources });
+  if (cfg.mock) return mockResult({ ...contextGroups, userMessage, model: cfg.model, resources, resourcePlan });
+  const messages = buildMessages({ contextGroups, userMessage, systemPrompt, resources, resourcePlan });
   const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
@@ -102,18 +137,18 @@ export async function generateAnswer({ contextGroups, userMessage, model, system
 }
 
 // 流式：每个 token 块通过 onToken 回调吐出（仅正文），最终返回 { answer, summary, tags }。
-export async function generateAnswerStream({ contextGroups, userMessage, model, systemPrompt, onToken }) {
+export async function generateAnswerStream({ contextGroups, userMessage, model, systemPrompt, resources, resourcePlan, onToken }) {
   const cfg = resolveConfig(model);
   if (cfg.mock) {
-    const full = mockAnswer({ ...contextGroups, userMessage, model: cfg.model });
+    const full = mockAnswer({ ...contextGroups, userMessage, model: cfg.model, resources, resourcePlan });
     for (let i = 0; i < full.length; i += 12) {
       await sleep(12);
       onToken(full.slice(i, i + 12));
     }
-    return mockResult({ ...contextGroups, userMessage, model: cfg.model });
+    return mockResult({ ...contextGroups, userMessage, model: cfg.model, resources, resourcePlan });
   }
 
-  const messages = buildMessages({ contextGroups, userMessage, systemPrompt, resources });
+  const messages = buildMessages({ contextGroups, userMessage, systemPrompt, resources, resourcePlan });
   const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
@@ -176,16 +211,27 @@ export async function generateAnswerStream({ contextGroups, userMessage, model, 
   return parseGenerated(full);
 }
 
-function mockAnswer({ direct, cross, userMessage, model, resources }) {
+function mockAnswer({ direct, cross, userMessage, model, resources, resourcePlan }) {
   const dCount = (direct || []).length;
   const cCount = (cross || []).length;
   const rCount = (resources || []).length;
+  const planCounts = (resources || []).reduce(
+    (acc, r) => {
+      const m = resourcePlan?.[r.id] || (r.kind === 'image' ? 'omit' : 'raw');
+      acc[m] = (acc[m] || 0) + 1;
+      return acc;
+    },
+    {}
+  );
+  const planText = Object.keys(planCounts).length
+    ? `（纳入方式：raw ${planCounts.raw || 0} / desc ${planCounts.desc || 0} / omit ${planCounts.omit || 0}）`
+    : '';
   const dLines = (direct || []).map((n, i) => `  ${i + 1}. ${n.userMessage.slice(0, 30)}`).join('\n');
   const cLines = (cross || []).map((n, i) => `  ${i + 1}. ${n.userMessage.slice(0, 30)}`).join('\n');
   return (
     `[MOCK 模式] 模型=${model}\n\n` +
     `你问：「${userMessage.slice(0, 80)}」\n` +
-    (rCount ? `\n【附带资源 ${rCount} 份（图片/文本/代码），此处仅占位，真实调用会传入模型】\n` : '') +
+    (rCount ? `\n【附带资源 ${rCount} 份（图片/文本/代码），此处仅占位，真实调用按编排计划纳入】${planText}\n` : '') +
     (dCount ? `\n【直接上下文·祖先路径 ${dCount} 条】\n${dLines}\n` : '\n（无祖先上下文，这是根问题）\n') +
     (cCount ? `\n【跨分支召回 ${cCount} 条】\n${cLines}\n` : '\n（无跨分支召回）\n') +
     '\n这是离线假回答，用于验证流程。配置真实 OPENAI_BASE_URL + OPENAI_API_KEY 后即为真实回答。'
@@ -193,8 +239,8 @@ function mockAnswer({ direct, cross, userMessage, model, resources }) {
 }
 
 // MOCK 模式：顺便给一份假元数据，保证下游解析路径与真实调用一致。
-function mockResult({ userMessage, resources }) {
-  const full = mockAnswer({ ...arguments[0], resources });
+function mockResult({ userMessage, resources, resourcePlan }) {
+  const full = mockAnswer({ ...arguments[0], resources, resourcePlan });
   const summary = full.replace(/\n+/g, ' ').slice(0, 80);
   const tags = Array.from(
     new Set(userMessage.split(/[\s，。？！、：,.:!?]+/).filter((w) => w.length >= 2))

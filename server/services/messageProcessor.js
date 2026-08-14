@@ -62,9 +62,23 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   );
   if (onStart) onStart({ id, treeId, parentId, userMessage });
 
+  // 先为当前轮资源生成「简介 + 标签」：供阶段一编排决策参考，并在落库时复用。
+  // （Phase 4 会迁移到模块模型；此处先用主模型）
+  let metas = [];
+  try {
+    metas = await generateResourceMetas(resources || [], usedModel);
+  } catch (e) {
+    console.error('generateResourceMetas failed:', e.message);
+  }
+  const enriched = (resources || []).map((r, i) => ({
+    ...r,
+    description: metas[i]?.description || '',
+    tags: metas[i]?.tags || [],
+  }));
+
   // 组装上下文（直接 / 跨分支）
   const ancestorSet = new Set(ancestorIds);
-  let direct, cross, retrieval;
+  let direct, cross, plan;
 
   if (Array.isArray(contextElementIds) && contextElementIds.length) {
     // 手动指定上下文：绕过 LLM 检索，完全按用户选择组装（命中且在祖先链内归入 direct，其余 cross）
@@ -77,14 +91,27 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
     cross = chosen
       .filter((n) => !ancestorSet.has(n.id))
       .map((n) => ({ id: n.id, userMessage: n.user_message, aiMessage: n.ai_message || '', degraded: false }));
-    retrieval = { selectedIds: cross.map((n) => n.id), reasoning: '手动指定' };
+    plan = {
+      context_intent: 'normal',
+      selectedIds: cross.map((n) => n.id),
+      nodePlan: {},
+      resourcePlan: {},
+      reasoning: '手动指定',
+    };
   } else {
-    // 阶段一：跨分支检索（best-effort）。
-    // 本地先剔除祖先路径上的元数据，再发送索引副本给 API（API 不再负责排除祖先）。
+    // 阶段一：跨分支检索 + 上下文编排（best-effort）。
+    // 祖先路径元数据单独呈现，跨分支候选剔除祖先；enriched 已含资源简介供决策。
+    const ancestorMeta = ancestorChain.map(toMetaEntry);
     const metadataIndex = treeNodes.filter((n) => !ancestorSet.has(n.id)).map(toMetaEntry);
-    let ret = { selectedIds: [], reasoning: '' };
+    let ret = {
+      context_intent: 'normal',
+      selectedIds: [],
+      nodePlan: {},
+      resourcePlan: {},
+      reasoning: '',
+    };
     try {
-      ret = await retrieveContext({ userMessage, ancestorIds, metadataIndex });
+      ret = await retrieveContext({ userMessage, ancestorMeta, metadataIndex, resources: enriched });
     } catch (e) {
       console.error('retrieveContext failed, fallback to ancestors only:', e.message);
     }
@@ -92,13 +119,14 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
       .map((cid) => treeNodes.find((n) => n.id === cid))
       .filter(Boolean)
       .filter((n) => !ancestorSet.has(n.id)); // 本地与直接上下文合并时去重
-    const built = buildContext({ ancestorChain, crossNodes, budget: 6000 });
+    const built = buildContext({ ancestorChain, crossNodes, plan: ret, budget: 6000 });
     direct = built.direct;
     cross = built.cross;
-    retrieval = ret;
+    plan = ret;
   }
 
   // 阶段二：生成（流式或非流式）。元数据（summary/tags）在同一调用里由 API 顺带产出。
+  // 当前轮资源按编排计划（plan.resourcePlan）决定纳入方式（omit/desc/raw）。
   let result = { answer: '', summary: '', tags: [] };
   try {
     if (onToken) {
@@ -106,11 +134,18 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
         contextGroups: { direct, cross },
         userMessage,
         model: usedModel,
-        resources,
+        resources: enriched,
+        resourcePlan: plan.resourcePlan,
         onToken,
       });
     } else {
-      result = await generateAnswer({ contextGroups: { direct, cross }, userMessage, model: usedModel, resources });
+      result = await generateAnswer({
+        contextGroups: { direct, cross },
+        userMessage,
+        model: usedModel,
+        resources: enriched,
+        resourcePlan: plan.resourcePlan,
+      });
     }
   } catch (e) {
     db.prepare("UPDATE context_elements SET status = 'error', updated_at = ? WHERE id = ?").run(now, id);
@@ -119,18 +154,6 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
   const answer = result.answer;
   const meta = { summary: result.summary, tags: result.tags };
 
-  // 为每份资源生成「简介 + 标签」（Phase 4 会迁移到模块模型；此处先用主模型）
-  let metas = [];
-  try {
-    metas = await generateResourceMetas(resources || [], usedModel);
-  } catch (e) {
-    console.error('generateResourceMetas failed:', e.message);
-  }
-  const enriched = (resources || []).map((r, i) => ({
-    ...r,
-    description: metas[i]?.description || '',
-    tags: metas[i]?.tags || [],
-  }));
   const resourceTags = enriched.flatMap((r) => r.tags || []);
   const summaryWithRes = [
     meta.summary,
@@ -142,7 +165,14 @@ export async function processMessage({ treeId, parentId, userMessage, model, isV
 
   const directIds = direct.map((n) => n.id);
   const crossIds = cross.map((n) => n.id);
-  const trace = JSON.stringify({ direct: directIds, cross: crossIds, reasoning: retrieval.reasoning });
+  const trace = JSON.stringify({
+    direct: directIds,
+    cross: crossIds,
+    intent: plan.context_intent,
+    nodePlan: plan.nodePlan || {},
+    resourcePlan: plan.resourcePlan || {},
+    reasoning: plan.reasoning || '',
+  });
 
   db.prepare(
     `UPDATE context_elements
@@ -171,6 +201,16 @@ function toMetaEntry(ce) {
   } catch {
     tags = [];
   }
+  let resourceDescs = [];
+  try {
+    const arr = ce.resources ? JSON.parse(ce.resources) : [];
+    resourceDescs = (Array.isArray(arr) ? arr : []).map((r) => ({
+      kind: r.kind,
+      description: r.description || '',
+    }));
+  } catch {
+    resourceDescs = [];
+  }
   return {
     id: ce.id,
     parent_id: ce.parent_id,
@@ -178,5 +218,7 @@ function toMetaEntry(ce) {
     summary: ce.summary || '',
     tags,
     is_volatile: !!ce.is_volatile,
+    hasResource: resourceDescs.length > 0,
+    resourceDescs,
   };
 }
